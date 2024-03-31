@@ -1,6 +1,8 @@
 // test.c
 #include <stdio.h>
 #include <stdlib.h>
+#include "mnist.h"
+
 extern double __enzyme_autodiff(void*, double*, double*, size_t);
 double square(double* arr, size_t n) {
     for (int i = 0; i < n; i++) {
@@ -39,6 +41,7 @@ double dsquare(double* ii, double* shadow) {
     return __enzyme_autodiff((void*) square, ii, shadow, 10);
 }
 int main() {
+    load_mnist();
     double* ii = (double*)malloc(10*8);
     double* shadow = (double*)malloc(10*8);
     for(double i=1; i<5; i++) {
