@@ -1,14 +1,21 @@
 // test.c
 #include <stdio.h>
-extern double __enzyme_autodiff(void*, double);
-double square(double x) {
-    return x * x;
+#include <stdlib.h>
+extern double __enzyme_autodiff(void*, double*, double*);
+double square(double* array) {
+    return *array * *array;
 }
-double dsquare(double x) {
+double dsquare(double* ii, double* shadow) {
     // This returns the derivative of square or 2 * x
-    return __enzyme_autodiff((void*) square, x);
+    return __enzyme_autodiff((void*) square, ii, shadow);
 }
 int main() {
-    for(double i=1; i<5; i++)
-        printf("square(%f)=%f, dsquare(%f)=%f\n", i, square(i), i, dsquare(i));
+    double* ii = (double*)malloc(8);
+    double* shadow = (double*)malloc(8);
+    for(double i=1; i<5; i++) {
+        *ii = i;
+        *shadow = 0;
+        dsquare(ii, shadow);
+        printf("square(%f)=%f, dsquare(%f)=%f\n", i, square(ii), i, *shadow);
+    }
 }
