@@ -16,6 +16,86 @@ struct Slice NewSlice(double* a, int begin, int end) {
     return x;
 }
 
+struct Data {
+    double* images;
+    char* labels;
+    double* entropy;
+};
+
+struct Data NewData() {
+    double* images = (double*)malloc((NUM_TRAIN+NUM_TEST)*SIZE*sizeof(double));
+    char* labels = (char*)malloc((NUM_TRAIN+NUM_TEST));
+    double* entropy = (double*)malloc((NUM_TRAIN+NUM_TEST)*sizeof(double));
+    struct Data data = {images, labels, entropy};
+    int index = 0;
+    for (int i=0; i<NUM_TRAIN; i++) {
+        double sum = 0;
+        for (int j=0; j<SIZE; j++) {
+            sum += (double)train_image_char[i][j];
+        }
+        for (int j=0; j<SIZE; j++) {
+            images[index] = ((double)train_image_char[i][j])/sum;
+            index++;
+        }
+        labels[i] = train_label_char[i][0];
+        entropy[i] = 0;
+    }
+    for (int i=0; i<NUM_TEST; i++) {
+        double sum = 0;
+        for (int j=0; j<SIZE; j++) {
+            sum += (double)test_image_char[i][j];
+        }
+        for (int j=0; j<SIZE; j++) {
+            images[index] = ((double)test_image_char[i][j])/sum;
+            index++;
+        }
+        labels[NUM_TRAIN+i] = train_label_char[i][0];
+        entropy[NUM_TRAIN+i] = 0;
+    }
+    return data;
+}
+
+void SortData(struct Data data) {
+    int swapped = 0;
+    for (int i = 0; i < (NUM_TRAIN+NUM_TEST) - 1; i++) {
+        swapped = 0;
+        for (int j = 0; j < (NUM_TRAIN+NUM_TEST) - i - 1; j++) {
+            if (data.entropy[j] > data.entropy[j + 1]) {
+                for (int k = 0; k < SIZE; k++) {
+                    double s = data.images[j*SIZE + k];
+                    data.images[j*SIZE + k] = data.images[(j+1)*SIZE + k];
+                    data.images[(j+1)*SIZE + k] = s;
+                }
+                char c = data.labels[j];
+                data.labels[j] = data.labels[j + 1];
+                data.labels[j + 1] = c;
+                double s = data.entropy[j];
+                data.entropy[j] = data.entropy[j + 1];
+                data.entropy[j + 1] = s;
+                swapped = 1;
+            }
+        }
+ 
+        if (swapped == 0)
+            break;
+    }
+}
+
+int IsSorted(struct Data data) {
+    for (int i = 0; i < (NUM_TRAIN+NUM_TEST) - 1; i++) {
+        if (data.entropy[i] > data.entropy[i+1]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+void DestroyData(struct Data data) {
+    free(data.images);
+    free(data.labels);
+    free(data.entropy);
+}
+
 double dot(struct Slice x, struct Slice y) {
     double sum = 0;
     for (int i=0; i<x.size; i++) {
@@ -115,36 +195,11 @@ double dsquare(double* ii, double* shadow) {
 }
 int main() {
     load_mnist();
-    double* images = (double*)malloc((NUM_TRAIN+NUM_TEST)*SIZE*sizeof(double));
-    double* entropy = (double*)malloc((NUM_TRAIN+NUM_TEST)*sizeof(double));
-    char* labels = (char*)malloc((NUM_TRAIN+NUM_TEST));
-    int index = 0;
-    for (int i=0; i<NUM_TRAIN; i++) {
-        double sum = 0;
-        for (int j=0; j<SIZE; j++) {
-            sum += (double)train_image_char[i][j];
-        }
-        for (int j=0; j<SIZE; j++) {
-            images[index] = ((double)train_image_char[i][j])/sum;
-            index++;
-        }
-        labels[i] = train_label_char[i][0];
-        entropy[i] = 0;
-    }
-    for (int i=0; i<NUM_TEST; i++) {
-        double sum = 0;
-        for (int j=0; j<SIZE; j++) {
-            sum += (double)test_image_char[i][j];
-        }
-        for (int j=0; j<SIZE; j++) {
-            images[index] = ((double)test_image_char[i][j])/sum;
-            index++;
-        }
-        labels[NUM_TRAIN+i] = train_label_char[i][0];
-        entropy[NUM_TRAIN+i] = 0;
-    }
-    SelfEntropy(NewSlice(images, 0, 100*SIZE), NewSlice(entropy, 0, 100));
-    printf("%f\n", entropy[0]);
+    struct Data data = NewData();
+    SelfEntropy(NewSlice(data.images, 0, 100*SIZE), NewSlice(data.entropy, 0, 100));
+    SortData(data);
+    printf("%d\n", IsSorted(data));
+    printf("%f\n", data.entropy[0]);
 
     double* ii = (double*)malloc(10*sizeof(double));
     double* shadow = (double*)malloc(10*sizeof(double));
@@ -163,9 +218,7 @@ int main() {
         }
     }
 
-    free(images);
-    free(entropy);
-    free(labels);
+    DestroyData(data);
     free(ii);
     free(shadow);
 }
