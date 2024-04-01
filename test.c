@@ -42,6 +42,35 @@ double dsquare(double* ii, double* shadow) {
 }
 int main() {
     load_mnist();
+    double* images = (double*)malloc((NUM_TRAIN+NUM_TEST)*SIZE);
+    double* entropy = (double*)malloc((NUM_TRAIN+NUM_TEST));
+    char* labels = (char*)malloc((NUM_TRAIN+NUM_TEST));
+    int index = 0;
+    for (int i=0; i<NUM_TRAIN; i++) {
+        double sum = 0;
+        for (int j=0; j<SIZE; j++) {
+            sum += (double)train_image_char[i][j];
+        }
+        for (int j=0; j<SIZE; j++) {
+            images[index] = ((double)train_image_char[i][j])/sum;
+            index++;
+        }
+        labels[i] = train_label_char[i][0];
+        entropy[i] = 0;
+    }
+    for (int i=0; i<NUM_TEST; i++) {
+        double sum = 0;
+        for (int j=0; j<SIZE; j++) {
+            sum += (double)test_image_char[i][j];
+        }
+        for (int j=0; j<SIZE; j++) {
+            images[index] = ((double)test_image_char[i][j])/sum;
+            index++;
+        }
+        labels[NUM_TRAIN+i] = train_label_char[i][0];
+        entropy[NUM_TRAIN+i] = 0;
+    }
+
     double* ii = (double*)malloc(10*8);
     double* shadow = (double*)malloc(10*8);
     for(double i=1; i<5; i++) {
