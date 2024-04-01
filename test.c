@@ -1,16 +1,79 @@
 // test.c
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include "mnist.h"
+
+#define S 1.0 - 1e-300
 
 struct Slice {
     double* a;
     int size;
 };
 
-struct Slice NewDoubleSlice(double* a, int begin, int end) {
+struct Slice NewSlice(double* a, int begin, int end) {
     struct Slice x = {a+begin, end};
     return x;
+}
+
+double dot(struct Slice x, struct Slice y) {
+    double sum = 0;
+    for (int i=0; i<x.size; i++) {
+        sum += x.a[i]*y.a[i];
+    }
+    return sum;
+}
+
+double dotT(struct Slice x, double* y, int col) {
+    double sum = 0;
+    for (int i=0; i<x.size; i++) {
+        sum += x.a[i]*y[i*SIZE+col];
+    }
+    return sum;
+}
+
+void softmax(struct Slice x) {
+    double max = 0;
+    for (int i=0; i<x.size; i++) {
+        if (x.a[i] > max) {
+            max = x.a[i];
+        }
+    }
+    double s = max*S;
+    double sum = 0;
+    for (int i=0; i<x.size; i++) {
+        x.a[i] = exp(x.a[i] - s);
+        sum += x.a[i];
+    }
+    for (int i=0; i<x.size; i++) {
+        x.a[i] /= sum;
+    }
+}
+
+void SelfEntropy(struct Slice images, struct Slice e) {
+    int cols = SIZE;
+    int rows = images.size/SIZE;
+    struct Slice entropies = {(double*)malloc(cols*sizeof(double)), cols};
+    struct Slice values = {(double*)malloc(cols*sizeof(double)), rows};
+    for (int i=0; i<rows; i++) {
+        for (int j=0; j<rows; j++) {
+            values.a[j] = dot(NewSlice(images.a, i*SIZE, (i+1)*SIZE), NewSlice(images.a, j*SIZE, (j+1)*SIZE));
+        }
+        softmax(values);
+
+        for (int j=0; j<cols; j++) {
+            entropies.a[j] = dotT(values, images.a, j);
+        }
+        softmax(entropies);
+
+        double entropy = 0;
+        for (int j=0; j<entropies.size; j++) {
+            entropy += entropies.a[j] * log(entropies.a[j]);
+        }
+        e.a[i] = -entropy;
+    }
+    free(entropies.a);
+    free(values.a);
 }
 
 extern double __enzyme_autodiff(void*, double*, double*, size_t);
@@ -80,6 +143,8 @@ int main() {
         labels[NUM_TRAIN+i] = train_label_char[i][0];
         entropy[NUM_TRAIN+i] = 0;
     }
+    SelfEntropy(NewSlice(images, 0, 100*SIZE), NewSlice(entropy, 0, 100));
+    printf("%f\n", entropy[0]);
 
     double* ii = (double*)malloc(10*sizeof(double));
     double* shadow = (double*)malloc(10*sizeof(double));
@@ -97,4 +162,10 @@ int main() {
             printf("square(%f)=%f, dsquare(%f)=%f\n", i, tmp, i, shadow[j]);
         }
     }
+
+    free(images);
+    free(entropy);
+    free(labels);
+    free(ii);
+    free(shadow);
 }
