@@ -17,23 +17,24 @@ struct Slice NewSlice(double* a, int begin, int end) {
 }
 
 struct Data {
+    int width;
     double* images;
     char* labels;
     double* entropy;
 };
 
-struct Data NewData() {
-    double* images = (double*)malloc((NUM_TRAIN+NUM_TEST)*SIZE*sizeof(double));
+struct Data NewData(int width) {
+    double* images = (double*)malloc((NUM_TRAIN+NUM_TEST)*width*sizeof(double));
     char* labels = (char*)malloc((NUM_TRAIN+NUM_TEST));
     double* entropy = (double*)malloc((NUM_TRAIN+NUM_TEST)*sizeof(double));
-    struct Data data = {images, labels, entropy};
+    struct Data data = {width, images, labels, entropy};
     int index = 0;
     for (int i=0; i<NUM_TRAIN; i++) {
         double sum = 0;
-        for (int j=0; j<SIZE; j++) {
+        for (int j=0; j<width; j++) {
             sum += (double)train_image_char[i][j];
         }
-        for (int j=0; j<SIZE; j++) {
+        for (int j=0; j<width; j++) {
             images[index] = ((double)train_image_char[i][j])/sum;
             index++;
         }
@@ -42,10 +43,10 @@ struct Data NewData() {
     }
     for (int i=0; i<NUM_TEST; i++) {
         double sum = 0;
-        for (int j=0; j<SIZE; j++) {
+        for (int j=0; j<width; j++) {
             sum += (double)test_image_char[i][j];
         }
-        for (int j=0; j<SIZE; j++) {
+        for (int j=0; j<width; j++) {
             images[index] = ((double)test_image_char[i][j])/sum;
             index++;
         }
@@ -56,10 +57,10 @@ struct Data NewData() {
 }
 
 void swap(struct Data data, int a, int b) {
-    for (int k = 0; k < SIZE; k++) {
-        double s = data.images[a*SIZE + k];
-        data.images[a*SIZE + k] = data.images[b*SIZE + k];
-        data.images[b*SIZE + k] = s;
+    for (int k = 0; k < data.width; k++) {
+        double s = data.images[a*data.width + k];
+        data.images[a*data.width + k] = data.images[b*data.width + k];
+        data.images[b*data.width + k] = s;
     }
     char c = data.labels[a];
     data.labels[a] = data.labels[b];
@@ -124,10 +125,10 @@ double dot(struct Slice x, struct Slice y) {
     return sum;
 }
 
-double dotT(struct Slice x, double* y, int col) {
+double dotT(struct Slice x, double* y, int col, int width) {
     double sum = 0;
     for (int i=0; i<x.size; i++) {
-        sum += x.a[i]*y[i*SIZE+col];
+        sum += x.a[i]*y[i*width+col];
     }
     return sum;
 }
@@ -150,19 +151,19 @@ void softmax(struct Slice x) {
     }
 }
 
-void SelfEntropy(struct Slice images, struct Slice e) {
+void SelfEntropy(struct Slice images, struct Slice e, int width) {
     int cols = SIZE;
-    int rows = images.size/SIZE;
+    int rows = images.size/width;
     struct Slice entropies = {(double*)malloc(cols*sizeof(double)), cols};
     struct Slice values = {(double*)malloc(rows*sizeof(double)), rows};
     for (int i=0; i<rows; i++) {
         for (int j=0; j<rows; j++) {
-            values.a[j] = dot(NewSlice(images.a, i*SIZE, (i+1)*SIZE), NewSlice(images.a, j*SIZE, (j+1)*SIZE));
+            values.a[j] = dot(NewSlice(images.a, i*width, (i+1)*width), NewSlice(images.a, j*width, (j+1)*width));
         }
         softmax(values);
 
         for (int j=0; j<cols; j++) {
-            entropies.a[j] = dotT(values, images.a, j);
+            entropies.a[j] = dotT(values, images.a, j, width);
         }
         softmax(entropies);
 
@@ -180,7 +181,7 @@ void Rainbow(struct Data data, int iterations) {
     for (int i = 0; i < iterations; i++) {
         printf("%d/%d\n", i, iterations);
         for (int j = 0; j <= (NUM_TRAIN+NUM_TEST) - 100; j += 100) {
-            SelfEntropy(NewSlice(data.images, j*SIZE, (j+100)*SIZE), NewSlice(data.entropy, j, j+100));
+            SelfEntropy(NewSlice(data.images, j*data.width, (j+100)*data.width), NewSlice(data.entropy, j, j+100), data.width);
         }
         if (IsSorted(data)) {
             break;
@@ -230,7 +231,7 @@ double dsquare(double* ii, double* shadow) {
 }
 int main() {
     load_mnist();
-    struct Data data = NewData();
+    struct Data data = NewData(SIZE);
     Rainbow(data, 64);
 
     double* ii = (double*)malloc(10*sizeof(double));
