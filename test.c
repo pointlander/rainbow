@@ -3,6 +3,16 @@
 #include <stdlib.h>
 #include "mnist.h"
 
+struct Slice {
+    double* a;
+    int size;
+};
+
+struct Slice NewDoubleSlice(double* a, int begin, int end) {
+    struct Slice x = {a+begin, end};
+    return x;
+}
+
 extern double __enzyme_autodiff(void*, double*, double*, size_t);
 double square(double* arr, size_t n) {
     for (int i = 0; i < n; i++) {
@@ -42,8 +52,8 @@ double dsquare(double* ii, double* shadow) {
 }
 int main() {
     load_mnist();
-    double* images = (double*)malloc((NUM_TRAIN+NUM_TEST)*SIZE);
-    double* entropy = (double*)malloc((NUM_TRAIN+NUM_TEST));
+    double* images = (double*)malloc((NUM_TRAIN+NUM_TEST)*SIZE*sizeof(double));
+    double* entropy = (double*)malloc((NUM_TRAIN+NUM_TEST)*sizeof(double));
     char* labels = (char*)malloc((NUM_TRAIN+NUM_TEST));
     int index = 0;
     for (int i=0; i<NUM_TRAIN; i++) {
@@ -71,8 +81,8 @@ int main() {
         entropy[NUM_TRAIN+i] = 0;
     }
 
-    double* ii = (double*)malloc(10*8);
-    double* shadow = (double*)malloc(10*8);
+    double* ii = (double*)malloc(10*sizeof(double));
+    double* shadow = (double*)malloc(10*sizeof(double));
     for(double i=1; i<5; i++) {
         for(double j=0; j<10; j++) {
             ii[(int)j] = 10 - j;
