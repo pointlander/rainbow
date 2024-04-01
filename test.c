@@ -4,7 +4,7 @@
 #include <math.h>
 #include "mnist.h"
 
-#define S 1.0 - 1e-300
+#define S (1.0 - 1e-300)
 
 struct Slice {
     double* a;
@@ -12,7 +12,7 @@ struct Slice {
 };
 
 struct Slice NewSlice(double* a, int begin, int end) {
-    struct Slice x = {a+begin, end};
+    struct Slice x = {a+begin, end - begin};
     return x;
 }
 
@@ -55,30 +55,50 @@ struct Data NewData() {
     return data;
 }
 
-void SortData(struct Data data) {
-    int swapped = 0;
-    for (int i = 0; i < (NUM_TRAIN+NUM_TEST) - 1; i++) {
-        swapped = 0;
-        for (int j = 0; j < (NUM_TRAIN+NUM_TEST) - i - 1; j++) {
-            if (data.entropy[j] > data.entropy[j + 1]) {
-                for (int k = 0; k < SIZE; k++) {
-                    double s = data.images[j*SIZE + k];
-                    data.images[j*SIZE + k] = data.images[(j+1)*SIZE + k];
-                    data.images[(j+1)*SIZE + k] = s;
-                }
-                char c = data.labels[j];
-                data.labels[j] = data.labels[j + 1];
-                data.labels[j + 1] = c;
-                double s = data.entropy[j];
-                data.entropy[j] = data.entropy[j + 1];
-                data.entropy[j + 1] = s;
-                swapped = 1;
-            }
-        }
- 
-        if (swapped == 0)
-            break;
+void swap(struct Data data, int a, int b) {
+    for (int k = 0; k < SIZE; k++) {
+        double s = data.images[a*SIZE + k];
+        data.images[a*SIZE + k] = data.images[b*SIZE + k];
+        data.images[b*SIZE + k] = s;
     }
+    char c = data.labels[a];
+    data.labels[a] = data.labels[b];
+    data.labels[b] = c;
+    double s = data.entropy[a];
+    data.entropy[a] = data.entropy[b];
+    data.entropy[b] = s;
+}
+
+int partition(struct Data data, int low, int high) {
+    double pivot = data.entropy[low];
+    int i = low;
+    int j = high;
+
+    while (i < j) {
+        while (data.entropy[i] <= pivot && i <= high - 1) {
+            i++;
+        }
+        while (data.entropy[j] > pivot && j >= low + 1) {
+            j--;
+        }
+        if (i < j) {
+            swap(data, i, j);
+        }
+    }
+    swap(data, low, j);
+    return j;
+}
+
+void quickSort(struct Data data, int low, int high) {
+    if (low < high) {
+        int partitionIndex = partition(data, low, high);
+        quickSort(data, low, partitionIndex - 1);
+        quickSort(data, partitionIndex + 1, high);
+    }
+}
+
+void SortData(struct Data data) {
+    quickSort(data, 0, (NUM_TRAIN+NUM_TEST) - 1);
 }
 
 int IsSorted(struct Data data) {
@@ -134,7 +154,7 @@ void SelfEntropy(struct Slice images, struct Slice e) {
     int cols = SIZE;
     int rows = images.size/SIZE;
     struct Slice entropies = {(double*)malloc(cols*sizeof(double)), cols};
-    struct Slice values = {(double*)malloc(cols*sizeof(double)), rows};
+    struct Slice values = {(double*)malloc(rows*sizeof(double)), rows};
     for (int i=0; i<rows; i++) {
         for (int j=0; j<rows; j++) {
             values.a[j] = dot(NewSlice(images.a, i*SIZE, (i+1)*SIZE), NewSlice(images.a, j*SIZE, (j+1)*SIZE));
@@ -154,6 +174,21 @@ void SelfEntropy(struct Slice images, struct Slice e) {
     }
     free(entropies.a);
     free(values.a);
+}
+
+void Rainbow(struct Data data, int iterations) {
+    for (int i = 0; i < iterations; i++) {
+        printf("%d/%d\n", i, iterations);
+        for (int j = 0; j <= (NUM_TRAIN+NUM_TEST) - 100; j += 100) {
+            SelfEntropy(NewSlice(data.images, j*SIZE, (j+100)*SIZE), NewSlice(data.entropy, j, j+100));
+        }
+        if (IsSorted(data)) {
+            break;
+        }
+        printf("sorting...\n");
+        SortData(data);
+        printf("%f\n", data.entropy[0]);
+    }
 }
 
 extern double __enzyme_autodiff(void*, double*, double*, size_t);
@@ -196,10 +231,7 @@ double dsquare(double* ii, double* shadow) {
 int main() {
     load_mnist();
     struct Data data = NewData();
-    SelfEntropy(NewSlice(data.images, 0, 100*SIZE), NewSlice(data.entropy, 0, 100));
-    SortData(data);
-    printf("%d\n", IsSorted(data));
-    printf("%f\n", data.entropy[0]);
+    Rainbow(data, 64);
 
     double* ii = (double*)malloc(10*sizeof(double));
     double* shadow = (double*)malloc(10*sizeof(double));
