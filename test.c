@@ -119,15 +119,16 @@ void DestroyData(struct Data data) {
     free(data.entropy);
 }
 
-double dot(struct Slice x, struct Slice y) {
+inline double dot(double *x, int xbegin, int xend, double *y, int ybegin, int yend) {
     double sum = 0;
-    for (int i=0; i<x.size; i++) {
-        sum += x.a[i]*y.a[i];
+    int size = xend - xbegin;
+    for (int i=0; i<size; i++) {
+        sum += x[i+xbegin]*y[i+ybegin];
     }
     return sum;
 }
 
-double dotT(struct Slice x, double* y, int col, int width) {
+inline double dotT(struct Slice x, double* y, int col, int width) {
     double sum = 0;
     for (int i=0; i<x.size; i++) {
         sum += x.a[i]*y[i*width+col];
@@ -160,7 +161,9 @@ void SelfEntropy(struct Slice images, struct Slice e, int width) {
     struct Slice values = {(double*)malloc(rows*sizeof(double)), rows};
     for (int i=0; i<rows; i++) {
         for (int j=0; j<rows; j++) {
-            values.a[j] = dot(NewSlice(images.a, i*width, (i+1)*width), NewSlice(images.a, j*width, (j+1)*width));
+            //values.a[j] = dot(NewSlice(images.a, i*width, (i+1)*width), NewSlice(images.a, j*width, (j+1)*width));
+            values.a[j] = dot(images.a, i*width, (i+1)*width,
+                images.a, j*width, (j+1)*width);
         }
         softmax(values);
 
@@ -186,12 +189,29 @@ struct Data Transform(struct Data *data, struct Slice *t) {
     struct Data cp = {rows, data->rows, malloc(data->rows*rows*sizeof(double)), data->labels, data->entropy};
     printf("in transform c\n");
     printf("%d %d\n", data->rows, rows);
+    const int width = data->width;
+    const double *a = t->a;
+    const double *b = data->images;
+    int index = 0;
     for (int i = 0; i < data->rows; i++) {
+        const int yoffset = i*width;
         for (int j = 0; j < rows; j++) {
+            const int xoffset = j*width;
             printf("%d %d\n", i, j);
-            struct Slice a = NewSlice(t->a, j*data->width, (j+1)*data->width);
-            struct Slice b = NewSlice(data->images, i*data->width, (i+1)*data->width);
-            cp.images[i*rows+j] = dot(a, b);
+            //struct Slice a = NewSlice(t->a, j*data->width, (j+1)*data->width);
+            //struct Slice b = NewSlice(data->images, i*data->width, (i+1)*data->width);
+            //cp.images[i*rows+j] = dot(t->a, j*data->width, (j+1)*data->width, 
+            //    data->images, i*data->width, (i+1)*data->width);
+            double sum = 0;
+            int xindex = xoffset;
+            int yindex = yoffset;
+            for (int k = 0; k < width; k++) {
+                sum += a[xindex]*b[yindex];
+                xindex++;
+                yindex++;
+            }
+            cp.images[index] = sum;
+            index++;
         }
     }
     return cp;
