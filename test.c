@@ -177,6 +177,18 @@ void SelfEntropy(struct Slice images, struct Slice e, int width) {
     free(values.a);
 }
 
+struct Data Transform(struct Data data, struct Slice t) {
+    int rows = t.size/data.width;
+    struct Data cp = {rows, malloc((NUM_TRAIN+NUM_TEST)*rows*sizeof(double)), data.labels, data.entropy};
+    for (int i = 0; i < (NUM_TRAIN+NUM_TEST); i++) {
+        for (int j = 0; j < rows; j++) {
+            cp.images[i*rows+j] = dot(NewSlice(t.a, j*data.width, (j+1)*data.width),
+                NewSlice(data.images, i*data.width, (i+1)*data.width));
+        }
+    }
+    return cp;
+}
+
 void Rainbow(struct Data data, int iterations) {
     for (int i = 0; i < iterations; i++) {
         printf("%d/%d\n", i, iterations);
@@ -188,7 +200,7 @@ void Rainbow(struct Data data, int iterations) {
         }
         printf("sorting...\n");
         SortData(data);
-        printf("%f\n", data.entropy[0]);
+        printf("%.17f %.17f\n", data.entropy[0], data.entropy[(NUM_TRAIN+NUM_TEST)-1]);
     }
 }
 
@@ -230,8 +242,15 @@ double dsquare(double* ii, double* shadow) {
     return __enzyme_autodiff((void*) square, ii, shadow, 10);
 }
 int main() {
+    srand(1);
     load_mnist();
     struct Data data = NewData(SIZE);
+    struct Slice t = {malloc(SIZE*32*sizeof(double)), SIZE*32};
+    double factor = sqrt(2.0 / ((double)SIZE));
+    for (int i = 0; i < t.size; i++) {
+        t.a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
+    }
+    data = Transform(data, t);
     Rainbow(data, 64);
 
     double* ii = (double*)malloc(10*sizeof(double));
