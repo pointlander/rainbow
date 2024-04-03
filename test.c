@@ -18,16 +18,18 @@ struct Slice NewSlice(double* a, int begin, int end) {
 
 struct Data {
     int width;
+    int rows;
     double* images;
     char* labels;
     double* entropy;
 };
 
 struct Data NewData(int width) {
-    double* images = (double*)malloc((NUM_TRAIN+NUM_TEST)*width*sizeof(double));
-    char* labels = (char*)malloc((NUM_TRAIN+NUM_TEST));
-    double* entropy = (double*)malloc((NUM_TRAIN+NUM_TEST)*sizeof(double));
-    struct Data data = {width, images, labels, entropy};
+    int rows = (NUM_TRAIN+NUM_TEST);
+    double* images = (double*)malloc(rows*width*sizeof(double));
+    char* labels = (char*)malloc(rows);
+    double* entropy = (double*)malloc(rows*sizeof(double));
+    struct Data data = {width, rows, images, labels, entropy};
     int index = 0;
     for (int i=0; i<NUM_TRAIN; i++) {
         double sum = 0;
@@ -177,13 +179,19 @@ void SelfEntropy(struct Slice images, struct Slice e, int width) {
     free(values.a);
 }
 
-struct Data Transform(struct Data data, struct Slice t) {
-    int rows = t.size/data.width;
-    struct Data cp = {rows, malloc((NUM_TRAIN+NUM_TEST)*rows*sizeof(double)), data.labels, data.entropy};
-    for (int i = 0; i < (NUM_TRAIN+NUM_TEST); i++) {
+struct Data Transform(struct Data *data, struct Slice *t) {
+    printf("in transform a\n");
+    int rows = t->size/data->width;
+    printf("in transform b\n");
+    struct Data cp = {rows, data->rows, malloc(data->rows*rows*sizeof(double)), data->labels, data->entropy};
+    printf("in transform c\n");
+    printf("%d %d\n", data->rows, rows);
+    for (int i = 0; i < data->rows; i++) {
         for (int j = 0; j < rows; j++) {
-            cp.images[i*rows+j] = dot(NewSlice(t.a, j*data.width, (j+1)*data.width),
-                NewSlice(data.images, i*data.width, (i+1)*data.width));
+            printf("%d %d\n", i, j);
+            struct Slice a = NewSlice(t->a, j*data->width, (j+1)*data->width);
+            struct Slice b = NewSlice(data->images, i*data->width, (i+1)*data->width);
+            cp.images[i*rows+j] = dot(a, b);
         }
     }
     return cp;
@@ -192,8 +200,10 @@ struct Data Transform(struct Data data, struct Slice t) {
 void Rainbow(struct Data data, int iterations) {
     for (int i = 0; i < iterations; i++) {
         printf("%d/%d\n", i, iterations);
-        for (int j = 0; j <= (NUM_TRAIN+NUM_TEST) - 100; j += 100) {
-            SelfEntropy(NewSlice(data.images, j*data.width, (j+100)*data.width), NewSlice(data.entropy, j, j+100), data.width);
+        for (int j = 0; j <= data.rows - 100; j += 100) {
+            struct Slice a = NewSlice(data.images, j*data.width, (j+100)*data.width);
+            struct Slice b = NewSlice(data.entropy, j, j+100);
+            SelfEntropy(a, b, data.width);
         }
         if (IsSorted(data)) {
             break;
@@ -204,73 +214,42 @@ void Rainbow(struct Data data, int iterations) {
     }
 }
 
-extern double __enzyme_autodiff(void*, double*, double*, size_t);
-double square(double* arr, size_t n) {
-    for (int i = 0; i < n; i++) {
-        arr[i] = arr[i] * arr[i];
-    }
-    int i, j;
-    int swapped = 0;
-    for (i = 0; i < n - 1; i++) {
-        swapped = 0;
-        for (j = 0; j < n - i - 1; j++) {
-            if (arr[j] > arr[j + 1]) {
-                double s = arr[j];
-                arr[j] = arr[j + 1];
-                arr[j + 1] = s;
-                swapped = 1;
-            }
-        }
- 
-        // If no two elements were swapped by inner loop,
-        // then break
-        if (swapped == 0)
-            break;
-    }
+extern double __enzyme_autodiff(void*, struct Slice*, struct Slice*, struct Data*, struct Data*);
+double rainbow(struct Slice *t, struct Data *data) {
+    printf("transform\n");
+    struct Data dat = Transform(data, t);
+    printf("rainbow\n");
+    Rainbow(dat, 3);
     double sum = 0;
-    for (int i = 0; i < n; i++ ) {
-        double cost = (double)i - arr[i];
-        if (cost<0) {
-            cost = -cost;
-        }
-        sum += cost;
+    for (int i = 0; i < (NUM_TRAIN+NUM_TEST); i++) {
+        sum += dat.entropy[i];
     }
+    //printf("sum %f\n", sum);
     return sum;
-}
-double dsquare(double* ii, double* shadow) {
-    // This returns the derivative of square or 2 * x
-    return __enzyme_autodiff((void*) square, ii, shadow, 10);
 }
 int main() {
     srand(1);
     load_mnist();
     struct Data data = NewData(SIZE);
+    char* labels = (char*)malloc((NUM_TRAIN+NUM_TEST));
+    double* entropy = (double*)malloc((NUM_TRAIN+NUM_TEST)*sizeof(double));
+    for (int i = 0; i < (NUM_TRAIN+NUM_TEST); i++) {
+        labels[i] = 0;
+        entropy[i] = 0;
+    }
+    struct Data d_data = {32, (NUM_TRAIN+NUM_TEST), malloc((NUM_TRAIN+NUM_TEST)*32*sizeof(double)), labels, entropy};
     struct Slice t = {malloc(SIZE*32*sizeof(double)), SIZE*32};
+    struct Slice d = {malloc(SIZE*32*sizeof(double)), SIZE*32};
     double factor = sqrt(2.0 / ((double)SIZE));
     for (int i = 0; i < t.size; i++) {
         t.a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
+        d.a[i] = 0;
     }
-    data = Transform(data, t);
-    Rainbow(data, 64);
-
-    double* ii = (double*)malloc(10*sizeof(double));
-    double* shadow = (double*)malloc(10*sizeof(double));
-    for(double i=1; i<5; i++) {
-        for(double j=0; j<10; j++) {
-            ii[(int)j] = 10 - j;
-            shadow[(int)j] = 0;
-        }
-        dsquare(ii, shadow);
-        for(double j=0; j<10; j++) {
-            ii[(int)j] = 10 - j;
-        }
-        double tmp = square(ii, 10);
-        for(int j = 0; j<10; j++) {
-            printf("square(%f)=%f, dsquare(%f)=%f\n", i, tmp, i, shadow[j]);
-        }
+    printf("autodiff\n");
+    __enzyme_autodiff((void*) rainbow, &t, &d, &data, &d_data);
+    for (int i = 0; i < t.size; i++) {
+        printf("%f ", d.a[i]);
     }
-
+    printf("\n");
     DestroyData(data);
-    free(ii);
-    free(shadow);
 }
