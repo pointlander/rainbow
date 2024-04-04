@@ -232,15 +232,30 @@ double rainbow(struct Slice *t, struct Data *data, double *loss) {
     return sum;
 }
 
+ // B1 exponential decay of the rate for the first moment estimates
+const double B1 = 0.8;
+// B2 exponential decay rate for the second-moment estimates
+const double B2 = 0.89;
+// Eta is the learning rate
+const double Eta = .1;
+
+inline double Pow(double x, int i) {
+    return pow(x, (double)(i+1));
+}
+
 int main() {
     srand(1);
     load_mnist();
     struct Data data = NewData(SIZE);
     struct Data cp = NewZeroData(SIZE, 100);
     struct Slice t = {malloc(SIZE*32*sizeof(double)), SIZE*32};
+    struct Slice m = {malloc(SIZE*32*sizeof(double)), SIZE*32};
+    struct Slice v = {malloc(SIZE*32*sizeof(double)), SIZE*32};
     double factor = sqrt(2.0 / ((double)SIZE));
     for (int i = 0; i < t.size; i++) {
         t.a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
+        m.a[i] = 0;
+        v.a[i] = 0;
     }
     for (int e = 0; e < 100; e++) {
         struct Slice d = {malloc(SIZE*32*sizeof(double)), SIZE*32};
@@ -280,8 +295,29 @@ int main() {
             SortData(data);
             printf("%.17f %.17f\n", data.entropy[0], data.entropy[(NUM_TRAIN+NUM_TEST)-1]);
         }
+        double norm = 0;
         for (int i = 0; i < t.size; i++) {
-            t.a[i] -= .1 * d.a[i];
+            norm += d.a[i] * d.a[i];
+        }
+        norm = sqrt(norm);
+        double scaling = 1;
+        if (norm > 1) {
+            scaling /= norm;
+        }
+        double b1 = Pow(B1, e);
+        double b2 = Pow(B2, e);
+        for (int i = 0; i < t.size; i++) {
+            double g = d.a[i] * scaling;
+            double mm = B1*m.a[i] + (1-B1)*g;
+            double vv = B2*v.a[i] + (1-B2)*g*g;
+            m.a[i] = mm;
+            v.a[i] = vv;
+            double mhat = mm / (1 - b1);
+            double vhat = vv / (1 - b2);
+            if (vhat < 0) {
+                vhat = 0;
+            }
+            t.a[i] -= Eta * mhat / (sqrt(vhat) + 1e-8);
         }
         free(d.a);
         printf("cost %f\n", cost);
@@ -290,4 +326,6 @@ int main() {
     DestroyData(data);
     DestroyData(cp);
     free(t.a);
+    free(m.a);
+    free(v.a);
 }
