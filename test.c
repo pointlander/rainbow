@@ -58,6 +58,21 @@ struct Data NewData(int width) {
     return data;
 }
 
+struct Data NewZeroData(int width, int rows) {
+    double *images = malloc(rows*width*sizeof(double));
+    for (int i = 0; i < rows*width; i++) {
+        images[i] = 0;
+    }
+    char* labels = (char*)malloc(rows);
+    double* entropy = (double*)malloc(rows*sizeof(double));
+    for (int i = 0; i < rows; i++) {
+        labels[i] = 0;
+        entropy[i] = 0;
+    }
+    struct Data data = {width, rows, images, labels, entropy};
+    return data;
+}
+
 void swap(struct Data data, int a, int b) {
     for (int k = 0; k < data.width; k++) {
         double s = data.images[a*data.width + k];
@@ -155,7 +170,7 @@ void softmax(struct Slice x) {
 }
 
 void SelfEntropy(struct Slice images, struct Slice e, int width) {
-    int cols = SIZE;
+    int cols = width;
     int rows = images.size/width;
     struct Slice entropies = {(double*)malloc(cols*sizeof(double)), cols};
     struct Slice values = {(double*)malloc(rows*sizeof(double)), rows};
@@ -183,12 +198,8 @@ void SelfEntropy(struct Slice images, struct Slice e, int width) {
 }
 
 struct Data Transform(struct Data *data, struct Slice *t) {
-    printf("in transform a\n");
     int rows = t->size/data->width;
-    printf("in transform b\n");
     struct Data cp = {rows, data->rows, malloc(data->rows*rows*sizeof(double)), data->labels, data->entropy};
-    printf("in transform c\n");
-    printf("%d %d\n", data->rows, rows);
     const int width = data->width;
     const double *a = t->a;
     const double *b = data->images;
@@ -197,7 +208,6 @@ struct Data Transform(struct Data *data, struct Slice *t) {
         const int yoffset = i*width;
         for (int j = 0; j < rows; j++) {
             const int xoffset = j*width;
-            printf("%d %d\n", i, j);
             //struct Slice a = NewSlice(t->a, j*data->width, (j+1)*data->width);
             //struct Slice b = NewSlice(data->images, i*data->width, (i+1)*data->width);
             //cp.images[i*rows+j] = dot(t->a, j*data->width, (j+1)*data->width, 
@@ -217,8 +227,8 @@ struct Data Transform(struct Data *data, struct Slice *t) {
     return cp;
 }
 
-void Rainbow(struct Data data, int iterations) {
-    for (int i = 0; i < iterations; i++) {
+void Rainbow(struct Data *data) {
+    /*for (int i = 0; i < iterations; i++) {
         printf("%d/%d\n", i, iterations);
         for (int j = 0; j <= data.rows - 100; j += 100) {
             struct Slice a = NewSlice(data.images, j*data.width, (j+100)*data.width);
@@ -231,33 +241,34 @@ void Rainbow(struct Data data, int iterations) {
         printf("sorting...\n");
         SortData(data);
         printf("%.17f %.17f\n", data.entropy[0], data.entropy[(NUM_TRAIN+NUM_TEST)-1]);
-    }
+    }*/
+    struct Slice a = NewSlice(data->images, 0, 100*data->width);
+    struct Slice b = NewSlice(data->entropy, 0, 100);
+    SelfEntropy(a, b, data->width);
 }
 
 extern double __enzyme_autodiff(void*, struct Slice*, struct Slice*, struct Data*, struct Data*);
 double rainbow(struct Slice *t, struct Data *data) {
-    printf("transform\n");
+    //printf("Transform\n");
     struct Data dat = Transform(data, t);
-    printf("rainbow\n");
-    Rainbow(dat, 3);
+    //printf("Rainbow\n");
+    Rainbow(&dat);
+    //printf("sum\n");
     double sum = 0;
-    for (int i = 0; i < (NUM_TRAIN+NUM_TEST); i++) {
+    for (int i = 0; i < 100; i++) {
         sum += dat.entropy[i];
     }
-    //printf("sum %f\n", sum);
+    //printf("free\n");
+    free(dat.images);
+    //printf("done\n");
     return sum;
 }
 int main() {
     srand(1);
     load_mnist();
     struct Data data = NewData(SIZE);
-    char* labels = (char*)malloc((NUM_TRAIN+NUM_TEST));
-    double* entropy = (double*)malloc((NUM_TRAIN+NUM_TEST)*sizeof(double));
-    for (int i = 0; i < (NUM_TRAIN+NUM_TEST); i++) {
-        labels[i] = 0;
-        entropy[i] = 0;
-    }
-    struct Data d_data = {32, (NUM_TRAIN+NUM_TEST), malloc((NUM_TRAIN+NUM_TEST)*32*sizeof(double)), labels, entropy};
+    struct Data cp = NewZeroData(SIZE, 100);
+    struct Data d_data = NewZeroData(SIZE, 100);
     struct Slice t = {malloc(SIZE*32*sizeof(double)), SIZE*32};
     struct Slice d = {malloc(SIZE*32*sizeof(double)), SIZE*32};
     double factor = sqrt(2.0 / ((double)SIZE));
@@ -266,10 +277,22 @@ int main() {
         d.a[i] = 0;
     }
     printf("autodiff\n");
-    __enzyme_autodiff((void*) rainbow, &t, &d, &data, &d_data);
-    for (int i = 0; i < t.size; i++) {
-        printf("%f ", d.a[i]);
+    for (int j = 0; j <= data.rows - 100; j += 100) {
+        printf("%d\n", j);
+        for (int k = 0; k < 100; k++) {
+            for (int l = 0; l < SIZE; l++) {
+                cp.images[k*SIZE + l] = data.images[(k+j)*SIZE + l];
+            }
+            cp.labels[k] = data.labels[k + j];
+            cp.entropy[k] = data.entropy[k + j];
+        }
+        __enzyme_autodiff((void*) rainbow, &t, &d, &cp, &d_data);
+    }
+    for (int i = 0; i < SIZE*32; i++) {
+        printf("%.20f ", d.a[i]);
     }
     printf("\n");
     DestroyData(data);
+    DestroyData(cp);
+    DestroyData(d_data);
 }
