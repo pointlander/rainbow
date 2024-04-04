@@ -218,8 +218,8 @@ void Rainbow(struct Data *data) {
     SelfEntropy(a, b, data->width);
 }
 
-extern double __enzyme_autodiff(void*, struct Slice*, struct Slice*, struct Data*, struct Data*);
-double rainbow(struct Slice *t, struct Data *data) {
+extern double __enzyme_autodiff(void*, struct Slice*, struct Slice*, struct Data*, struct Data*, double*, double*);
+double rainbow(struct Slice *t, struct Data *data, double *loss) {
     struct Data dat = Transform(data, t);
     Rainbow(&dat);
     double sum = 0;
@@ -228,6 +228,7 @@ double rainbow(struct Slice *t, struct Data *data) {
         sum += dat.entropy[i];
     }
     free(dat.images);
+    *loss = sum;
     return sum;
 }
 
@@ -237,44 +238,56 @@ int main() {
     struct Data data = NewData(SIZE);
     struct Data cp = NewZeroData(SIZE, 100);
     struct Slice t = {malloc(SIZE*32*sizeof(double)), SIZE*32};
-    struct Slice d = {malloc(SIZE*32*sizeof(double)), SIZE*32};
     double factor = sqrt(2.0 / ((double)SIZE));
     for (int i = 0; i < t.size; i++) {
         t.a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
-        d.a[i] = 0;
     }
-    for (int i = 0; i < 2; i++) {
-        printf("calculating self entropy\n");
-        for (int j = 0; j <= (data.rows - 100); j += 100) {
-            for (int k = 0; k < 100; k++) {
-                for (int l = 0; l < SIZE; l++) {
-                    cp.images[k*SIZE + l] = data.images[(k+j)*SIZE + l];
-                }
-                cp.labels[k] = data.labels[k + j];
-                cp.entropy[k] = data.entropy[k + j];
-            }
-            struct Data d_data = NewZeroData(SIZE, 100);
-            __enzyme_autodiff((void*) rainbow, &t, &d, &cp, &d_data);
-            DestroyData(d_data);
-            for (int k = 0; k < 100; k++) {
-                for (int l = 0; l < SIZE; l++) {
-                    data.images[(k+j)*SIZE + l] = cp.images[k*SIZE + l];
-                }
-                data.labels[k + j] = cp.labels[k];
-                data.entropy[k + j] = cp.entropy[k];
-            }
+    for (int e = 0; e < 100; e++) {
+        struct Slice d = {malloc(SIZE*32*sizeof(double)), SIZE*32};
+        for (int i = 0; i < d.size; i++) {
+            d.a[i] = 0;
         }
-        if (IsSorted(data)) {
-            break;
+        double cost = 0;
+        for (int i = 0; i < 2; i++) {
+            printf("calculating self entropy\n");
+            for (int j = 0; j <= (data.rows - 100); j += 100) {
+                for (int k = 0; k < 100; k++) {
+                    for (int l = 0; l < SIZE; l++) {
+                        cp.images[k*SIZE + l] = data.images[(k+j)*SIZE + l];
+                    }
+                    cp.labels[k] = data.labels[k + j];
+                    cp.entropy[k] = data.entropy[k + j];
+                }
+                struct Data d_data = NewZeroData(SIZE, 100);
+                double loss = 0;
+                double dloss = 0;
+                __enzyme_autodiff((void*) rainbow, &t, &d, &cp, &d_data, &loss, &dloss);
+                cost += loss;
+                DestroyData(d_data);
+                for (int k = 0; k < 100; k++) {
+                    for (int l = 0; l < SIZE; l++) {
+                        data.images[(k+j)*SIZE + l] = cp.images[k*SIZE + l];
+                    }
+                    data.labels[k + j] = cp.labels[k];
+                    data.entropy[k + j] = cp.entropy[k];
+                }
+            }
+            if (IsSorted(data)) {
+                printf("is sorted\n");
+                break;
+            }
+            printf("sorting\n");
+            SortData(data);
+            printf("%.17f %.17f\n", data.entropy[0], data.entropy[(NUM_TRAIN+NUM_TEST)-1]);
         }
-        printf("sorting\n");
-        SortData(data);
-        printf("%.17f %.17f\n", data.entropy[0], data.entropy[(NUM_TRAIN+NUM_TEST)-1]);
-    }
-    for (int i = 0; i < SIZE*32; i++) {
-        printf("%.20f ", d.a[i]);
+        for (int i = 0; i < t.size; i++) {
+            t.a[i] -= .1 * d.a[i];
+        }
+        free(d.a);
+        printf("cost %f\n", cost);
     }
     printf("\n");
     DestroyData(data);
     DestroyData(cp);
+    free(t.a);
 }
