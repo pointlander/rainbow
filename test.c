@@ -236,7 +236,6 @@ int main() {
     load_mnist();
     struct Data data = NewData(SIZE);
     struct Data cp = NewZeroData(SIZE, 100);
-    struct Data d_data = NewZeroData(SIZE, 100);
     struct Slice t = {malloc(SIZE*32*sizeof(double)), SIZE*32};
     struct Slice d = {malloc(SIZE*32*sizeof(double)), SIZE*32};
     double factor = sqrt(2.0 / ((double)SIZE));
@@ -254,7 +253,9 @@ int main() {
                 cp.labels[k] = data.labels[k + j];
                 cp.entropy[k] = data.entropy[k + j];
             }
+            struct Data d_data = NewZeroData(SIZE, 100);
             __enzyme_autodiff((void*) rainbow, &t, &d, &cp, &d_data);
+            DestroyData(d_data);
             for (int k = 0; k < 100; k++) {
                 for (int l = 0; l < SIZE; l++) {
                     data.images[(k+j)*SIZE + l] = cp.images[k*SIZE + l];
@@ -276,5 +277,4 @@ int main() {
     printf("\n");
     DestroyData(data);
     DestroyData(cp);
-    DestroyData(d_data);
 }
