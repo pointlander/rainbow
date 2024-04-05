@@ -11,6 +11,18 @@ struct Slice {
     int size;
 };
 
+struct Slice MakeSlice(int size) {
+    const int n = size*sizeof(double);
+    double *a = (double *)malloc(n);
+    struct Slice x = {a, size};
+    memset(a, 0, n);
+    return x;
+}
+
+void FreeSlice(struct Slice x) {
+    free(x.a);
+}
+
 struct Slice NewSlice(double* a, int begin, int end) {
     struct Slice x = {a+begin, end - begin};
     return x;
@@ -171,8 +183,8 @@ void softmax(struct Slice x) {
 void SelfEntropy(struct Slice images, struct Slice e, int width) {
     const int cols = width;
     const int rows = images.size/width;
-    struct Slice entropies = {(double*)malloc(cols*sizeof(double)), cols};
-    struct Slice values = {(double*)malloc(rows*sizeof(double)), rows};
+    struct Slice entropies = MakeSlice(cols);
+    struct Slice values = MakeSlice(rows);
     for (int i=0; i<rows; i++) {
         for (int j=0; j<rows; j++) {
             values.a[j] = dot(NewSlice(images.a, i*width, (i+1)*width),
@@ -191,8 +203,8 @@ void SelfEntropy(struct Slice images, struct Slice e, int width) {
         }
         e.a[i] = -entropy;
     }
-    free(entropies.a);
-    free(values.a);
+    FreeSlice(entropies);
+    FreeSlice(values);
 }
 
 struct Data Transform(struct Data *data, struct Slice *t) {
@@ -212,16 +224,12 @@ struct Data Transform(struct Data *data, struct Slice *t) {
     return cp;
 }
 
-void Rainbow(struct Data *data) {
-    struct Slice a = NewSlice(data->images, 0, 100*data->width);
-    struct Slice b = NewSlice(data->entropy, 0, 100);
-    SelfEntropy(a, b, data->width);
-}
-
 extern double __enzyme_autodiff(void*, struct Slice*, struct Slice*, struct Data*, struct Data*, double*, double*);
 double rainbow(struct Slice *t, struct Data *data, double *loss) {
     struct Data dat = Transform(data, t);
-    Rainbow(&dat);
+    struct Slice a = NewSlice(dat.images, 0, 100*dat.width);
+    struct Slice b = NewSlice(dat.entropy, 0, 100);
+    SelfEntropy(a, b, dat.width);
     double sum = 0;
     for (int i = 0; i < 100; i++) {
         data->entropy[i] = dat.entropy[i];
@@ -248,20 +256,15 @@ int main() {
     load_mnist();
     struct Data data = NewData(SIZE);
     struct Data cp = NewZeroData(SIZE, 100);
-    struct Slice t = {malloc(SIZE*32*sizeof(double)), SIZE*32};
-    struct Slice m = {malloc(SIZE*32*sizeof(double)), SIZE*32};
-    struct Slice v = {malloc(SIZE*32*sizeof(double)), SIZE*32};
+    struct Slice t = MakeSlice(SIZE*32);
+    struct Slice m = MakeSlice(SIZE*32);
+    struct Slice v = MakeSlice(SIZE*32);
     double factor = sqrt(2.0 / ((double)SIZE));
     for (int i = 0; i < t.size; i++) {
         t.a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
-        m.a[i] = 0;
-        v.a[i] = 0;
     }
     for (int e = 0; e < 100; e++) {
-        struct Slice d = {malloc(SIZE*32*sizeof(double)), SIZE*32};
-        for (int i = 0; i < d.size; i++) {
-            d.a[i] = 0;
-        }
+        struct Slice d = MakeSlice(SIZE*32);
         double cost = 0;
         for (int i = 0; i < 2; i++) {
             printf("calculating self entropy\n");
@@ -319,13 +322,13 @@ int main() {
             }
             t.a[i] -= Eta * mhat / (sqrt(vhat) + 1e-8);
         }
-        free(d.a);
+        FreeSlice(d);
         printf("cost %f\n", cost);
     }
     printf("\n");
     DestroyData(data);
     DestroyData(cp);
-    free(t.a);
-    free(m.a);
-    free(v.a);
+    FreeSlice(t);
+    FreeSlice(m);
+    FreeSlice(v);
 }
