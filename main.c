@@ -33,9 +33,9 @@ void FreeSlice(struct Slice x) {
     free(x.a);
 }
 
-struct Slice NewSlice(double* a, int begin, int end) {
+struct Slice Slice(struct Slice a, int begin, int end) {
     struct Slice x = {
-        .a = a+begin,
+        .a = a.a+begin,
         .size = end - begin
     };
     return x;
@@ -68,16 +68,16 @@ void FreeSet(struct Set set) {
 struct Data {
     int width;
     int rows;
-    double* images;
+    struct Slice images;
     char* labels;
-    double* entropy;
+    struct Slice entropy;
 };
 
 struct Data NewData(int width) {
     int rows = (NUM_TRAIN+NUM_TEST);
-    double* images = (double*)malloc(rows*width*sizeof(double));
+    struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)malloc(rows);
-    double* entropy = (double*)malloc(rows*sizeof(double));
+    struct Slice entropy = MakeSlice(rows);
     struct Data data = {
         .width = width,
         .rows = rows,
@@ -92,11 +92,11 @@ struct Data NewData(int width) {
             sum += (double)train_image_char[i][j];
         }
         for (int j = 0; j < width; j++) {
-            images[index] = ((double)train_image_char[i][j])/sum;
+            images.a[index] = ((double)train_image_char[i][j])/sum;
             index++;
         }
         labels[i] = train_label_char[i][0];
-        entropy[i] = 0;
+        entropy.a[i] = 0;
     }
     for (int i = 0; i < NUM_TEST; i++) {
         double sum = 0;
@@ -104,25 +104,21 @@ struct Data NewData(int width) {
             sum += (double)test_image_char[i][j];
         }
         for (int j = 0; j < width; j++) {
-            images[index] = ((double)test_image_char[i][j])/sum;
+            images.a[index] = ((double)test_image_char[i][j])/sum;
             index++;
         }
         labels[NUM_TRAIN+i] = train_label_char[i][0];
-        entropy[NUM_TRAIN+i] = 0;
+        entropy.a[NUM_TRAIN+i] = 0;
     }
     return data;
 }
 
 struct Data NewZeroData(int width, int rows) {
-    double *images = malloc(rows*width*sizeof(double));
-    for (int i = 0; i < rows*width; i++) {
-        images[i] = 0;
-    }
+    struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)malloc(rows);
-    double* entropy = (double*)malloc(rows*sizeof(double));
+    struct Slice entropy = MakeSlice(rows);
     for (int i = 0; i < rows; i++) {
         labels[i] = 0;
-        entropy[i] = 0;
     }
     struct Data data = {
         .width = width,
@@ -136,28 +132,28 @@ struct Data NewZeroData(int width, int rows) {
 
 void swap(struct Data data, int a, int b) {
     for (int k = 0; k < data.width; k++) {
-        double s = data.images[a*data.width + k];
-        data.images[a*data.width + k] = data.images[b*data.width + k];
-        data.images[b*data.width + k] = s;
+        double s = data.images.a[a*data.width + k];
+        data.images.a[a*data.width + k] = data.images.a[b*data.width + k];
+        data.images.a[b*data.width + k] = s;
     }
     char c = data.labels[a];
     data.labels[a] = data.labels[b];
     data.labels[b] = c;
-    double s = data.entropy[a];
-    data.entropy[a] = data.entropy[b];
-    data.entropy[b] = s;
+    double s = data.entropy.a[a];
+    data.entropy.a[a] = data.entropy.a[b];
+    data.entropy.a[b] = s;
 }
 
 int partition(struct Data data, int low, int high) {
-    double pivot = data.entropy[low];
+    double pivot = data.entropy.a[low];
     int i = low;
     int j = high;
 
     while (i < j) {
-        while (data.entropy[i] <= pivot && i <= high - 1) {
+        while (data.entropy.a[i] <= pivot && i <= high - 1) {
             i++;
         }
-        while (data.entropy[j] > pivot && j >= low + 1) {
+        while (data.entropy.a[j] > pivot && j >= low + 1) {
             j--;
         }
         if (i < j) {
@@ -182,17 +178,17 @@ void SortData(struct Data data) {
 
 int IsSorted(struct Data data) {
     for (int i = 0; i < (data.rows - 1); i++) {
-        if (data.entropy[i] > data.entropy[i+1]) {
+        if (data.entropy.a[i] > data.entropy.a[i+1]) {
             return 0;
         }
     }
     return 1;
 }
 
-void DestroyData(struct Data data) {
-    free(data.images);
+void FreeData(struct Data data) {
+    FreeSlice(data.images);
     free(data.labels);
-    free(data.entropy);
+    FreeSlice(data.entropy);
 }
 
 inline double dot(struct Slice x, struct Slice y) {
@@ -236,8 +232,8 @@ void SelfEntropy(struct Slice images, struct Slice e, int width) {
     struct Slice values = MakeSlice(rows);
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < rows; j++) {
-            values.a[j] = dot(NewSlice(images.a, i*width, (i+1)*width),
-                NewSlice(images.a, j*width, (j+1)*width));
+            values.a[j] = dot(Slice(images, i*width, (i+1)*width),
+                Slice(images, j*width, (j+1)*width));
         }
         softmax(values);
 
@@ -261,18 +257,16 @@ struct Data Transform(struct Data *data, struct Slice *t) {
     struct Data cp = {
         .width = rows,
         .rows = data->rows,
-        .images = malloc(data->rows*rows*sizeof(double)),
+        .images = MakeSlice(data->rows*rows),
         .labels = data->labels,
         .entropy = data->entropy
     };
     const int width = data->width;
-    double *a = t->a;
-    double *b = data->images;
     int index = 0;
     for (int i = 0; i < data->rows; i++) {
         for (int j = 0; j < rows; j++) {
-            cp.images[index] = dot(NewSlice(a, j*width, (j+1)*width),
-                NewSlice(b, i*width, (i+1)*width));
+            cp.images.a[index] = dot(Slice(*t, j*width, (j+1)*width),
+                Slice(data->images, i*width, (i+1)*width));
             index++;
         }
     }
@@ -282,15 +276,13 @@ struct Data Transform(struct Data *data, struct Slice *t) {
 extern double __enzyme_autodiff(void*, struct Set*, struct Set*, struct Data*, struct Data*, double*, double*);
 double rainbow(struct Set *set, struct Data *data, double *loss) {
     struct Data dat = Transform(data, &(set->T[0]));
-    struct Slice a = NewSlice(dat.images, 0, 100*dat.width);
-    struct Slice b = NewSlice(dat.entropy, 0, 100);
-    SelfEntropy(a, b, dat.width);
+    SelfEntropy(dat.images, dat.entropy, dat.width);
     double sum = 0;
     for (int i = 0; i < 100; i++) {
-        data->entropy[i] = dat.entropy[i];
-        sum += dat.entropy[i];
+        data->entropy.a[i] = dat.entropy.a[i];
+        sum += dat.entropy.a[i];
     }
-    free(dat.images);
+    FreeSlice(dat.images);
     *loss = sum;
     return sum;
 }
@@ -319,23 +311,23 @@ int main() {
             for (int j = 0; j <= (data.rows - 100); j += 100) {
                 for (int k = 0; k < 100; k++) {
                     for (int l = 0; l < SIZE; l++) {
-                        cp.images[k*SIZE + l] = data.images[(k+j)*SIZE + l];
+                        cp.images.a[k*SIZE + l] = data.images.a[(k+j)*SIZE + l];
                     }
                     cp.labels[k] = data.labels[k + j];
-                    cp.entropy[k] = data.entropy[k + j];
+                    cp.entropy.a[k] = data.entropy.a[k + j];
                 }
                 struct Data d_data = NewZeroData(SIZE, 100);
                 double loss = 0;
                 double dloss = 0;
                 __enzyme_autodiff((void*) rainbow, &set, &d, &cp, &d_data, &loss, &dloss);
                 cost += loss;
-                DestroyData(d_data);
+                FreeData(d_data);
                 for (int k = 0; k < 100; k++) {
                     for (int l = 0; l < SIZE; l++) {
-                        data.images[(k+j)*SIZE + l] = cp.images[k*SIZE + l];
+                        data.images.a[(k+j)*SIZE + l] = cp.images.a[k*SIZE + l];
                     }
                     data.labels[k + j] = cp.labels[k];
-                    data.entropy[k + j] = cp.entropy[k];
+                    data.entropy.a[k + j] = cp.entropy.a[k];
                 }
             }
             if (IsSorted(data)) {
@@ -344,7 +336,7 @@ int main() {
             }
             printf("sorting\n");
             SortData(data);
-            printf("%.17f %.17f\n", data.entropy[0], data.entropy[(NUM_TRAIN+NUM_TEST)-1]);
+            printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
         }
         double norm = 0;
         for (int s = 0; s < 3; s++) {
@@ -378,7 +370,7 @@ int main() {
         printf("cost %f\n", cost);
     }
     printf("\n");
-    DestroyData(data);
-    DestroyData(cp);
+    FreeData(data);
+    FreeData(cp);
     FreeSet(set);
 }
