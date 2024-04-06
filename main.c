@@ -1,4 +1,3 @@
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -31,17 +30,11 @@ void FreeSlice(struct Slice x) {
     free(x.a);
 }
 
-void Within(struct Slice a, int n, ...) {
-    va_list ptr;
-    va_start(ptr, n);
-    for (int i = 0; i < n; i++) {
-        int index = va_arg(ptr, int);
-        if ((index < 0) || (index > a.size)) {
-             printf("index out of bounds for slice\n");
-            exit(1);
-        }
+void Within(struct Slice a, int n) {
+    if ((n < 0) || (n > a.size)) {
+        printf("index out of bounds for slice\n");
+        exit(1);
     }
-    va_end(ptr);
 }
 
 struct Slice Slice(struct Slice a, int begin, int end) {
@@ -101,7 +94,7 @@ struct Data NewData(int width) {
         .entropy = entropy
     };
     int index = 0;
-    Within(images, 1, NUM_TRAIN*width);
+    Within(images, NUM_TRAIN*width);
     for (int i = 0; i < NUM_TRAIN; i++) {
         double sum = 0;
         for (int j = 0; j < width; j++) {
@@ -114,7 +107,8 @@ struct Data NewData(int width) {
         labels[i] = train_label_char[i][0];
         entropy.a[i] = 0;
     }
-    Within(images, 2, NUM_TRAIN*width, (NUM_TRAIN+NUM_TEST)*width);
+    Within(images, NUM_TRAIN*width);
+    Within(images, (NUM_TRAIN+NUM_TEST)*width);
     for (int i = 0; i < NUM_TEST; i++) {
         double sum = 0;
         for (int j = 0; j < width; j++) {
@@ -148,7 +142,8 @@ struct Data NewZeroData(int width, int rows) {
 }
 
 void swap(struct Data data, int a, int b) {
-    Within(data.images, 2, a*data.width + data.width, b*data.width + data.width);
+    Within(data.images, a*data.width + data.width);
+    Within(data.images, b*data.width + data.width);
     for (int k = 0; k < data.width; k++) {
         double s = data.images.a[a*data.width + k];
         data.images.a[a*data.width + k] = data.images.a[b*data.width + k];
@@ -167,7 +162,7 @@ int partition(struct Data data, int low, int high) {
     int i = low;
     int j = high;
 
-    Within(data.entropy, 1, j);
+    Within(data.entropy, j);
     while (i < j) {
         while (data.entropy.a[i] <= pivot && i <= high - 1) {
             i++;
@@ -196,7 +191,7 @@ void SortData(struct Data data) {
 }
 
 int IsSorted(struct Data data) {
-    Within(data.entropy, 1, data.rows - 1);
+    Within(data.entropy, data.rows - 1);
     for (int i = 0; i < (data.rows - 1); i++) {
         if (data.entropy.a[i] > data.entropy.a[i+1]) {
             return 0;
@@ -245,11 +240,12 @@ void softmax(struct Slice x) {
     }
 }
 
-void SelfEntropy(struct Slice q, struct Slice k, struct Slice v, struct Slice e, int width) {
+struct Slice SelfEntropy(struct Slice q, struct Slice k, struct Slice v, int width) {
     const int cols = width;
     const int rows = q.size/width;
     struct Slice entropies = MakeSlice(cols);
     struct Slice values = MakeSlice(rows);
+    struct Slice e = MakeSlice(rows);
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < rows; j++) {
             values.a[j] = dot(Slice(q, i*width, (i+1)*width),
@@ -263,7 +259,7 @@ void SelfEntropy(struct Slice q, struct Slice k, struct Slice v, struct Slice e,
         softmax(entropies);
 
         double entropy = 0;
-        Within(entropies, 1, entropies.size);
+        Within(entropies, entropies.size);
         for (int j = 0; j < entropies.size; j++) {
             entropy += entropies.a[j] * log(entropies.a[j]);
         }
@@ -271,43 +267,40 @@ void SelfEntropy(struct Slice q, struct Slice k, struct Slice v, struct Slice e,
     }
     FreeSlice(entropies);
     FreeSlice(values);
+    return e;
 }
 
-struct Data Transform(struct Data *data, struct Slice *t) {
+struct Slice Transform(struct Data *data, struct Slice *t) {
     const int rows = t->size/data->width;
-    struct Data cp = {
-        .width = rows,
-        .rows = data->rows,
-        .images = MakeSlice(data->rows*rows),
-        .labels = data->labels,
-        .entropy = data->entropy
-    };
+    struct Slice images = MakeSlice(data->rows*rows);
     const int width = data->width;
     int index = 0;
     for (int i = 0; i < data->rows; i++) {
         for (int j = 0; j < rows; j++) {
-            cp.images.a[index] = dot(Slice(*t, j*width, (j+1)*width),
+            images.a[index] = dot(Slice(*t, j*width, (j+1)*width),
                 Slice(data->images, i*width, (i+1)*width));
             index++;
         }
     }
-    return cp;
+    return images;
 }
 
 extern double __enzyme_autodiff(void*, struct Set*, struct Set*, struct Data*, struct Data*, double*, double*);
 double rainbow(struct Set *set, struct Data *data, double *loss) {
-    struct Data q = Transform(data, &(set->T[0]));
-    struct Data k = Transform(data, &(set->T[1]));
-    struct Data v = Transform(data, &(set->T[2]));
-    SelfEntropy(q.images, k.images, v.images, data->entropy, q.width);
+    struct Slice q = Transform(data, &(set->T[0]));
+    struct Slice k = Transform(data, &(set->T[1]));
+    struct Slice v = Transform(data, &(set->T[2]));
+    struct Slice e = SelfEntropy(q, k, v, (set->T[0].size)/data->width);
+    FreeSlice(q);
+    FreeSlice(k);
+    FreeSlice(v);
+    Within(e, 100);
     double sum = 0;
-    Within(data->entropy, 1, 100);
-    for (int i = 0; i < 100; i++) {
-        sum += data->entropy.a[i];
+    for (int i = 0; i < e.size; i++) {
+        data->entropy.a[i] = e.a[i];
+        sum += e.a[i];
     }
-    FreeSlice(q.images);
-    FreeSlice(k.images);
-    FreeSlice(v.images);
+    FreeSlice(e);
     *loss = sum;
     return sum;
 }
@@ -333,10 +326,10 @@ int main() {
         double cost = 0;
         for (int i = 0; i < 2; i++) {
             printf("calculating self entropy\n");
-            Within(cp.images, 1, 99*SIZE + SIZE);
-            Within(data.images, 1, (data.rows - 1)*SIZE + SIZE);
-            Within(cp.entropy, 1, 100);
-            Within(data.entropy, 1, data.rows);
+            Within(cp.images, 99*SIZE + SIZE);
+            Within(data.images, (data.rows - 1)*SIZE + SIZE);
+            Within(cp.entropy, 100);
+            Within(data.entropy, data.rows);
             for (int j = 0; j <= (data.rows - 100); j += 100) {
                 for (int k = 0; k < 100; k++) {
                     for (int l = 0; l < SIZE; l++) {
@@ -369,7 +362,7 @@ int main() {
         }
         double norm = 0;
         for (int s = 0; s < 3; s++) {
-            Within(d.T[s], 1, d.T[s].size);
+            Within(d.T[s], d.T[s].size);
             for (int i = 0; i < d.T[s].size; i++) {
                 norm += d.T[s].a[i] * d.T[s].a[i];
             }
@@ -382,9 +375,9 @@ int main() {
         double b1 = Pow(B1, e);
         double b2 = Pow(B2, e);
         for (int s = 0; s < 3; s++) {
-            Within(d.T[s], 1, d.T[s].size);
-            Within(set.M[s], 1, d.T[s].size);
-            Within(set.V[s], 1, d.T[s].size);
+            Within(d.T[s], d.T[s].size);
+            Within(set.M[s], d.T[s].size);
+            Within(set.V[s], d.T[s].size);
             for (int i = 0; i < d.T[s].size; i++) {
                 double g = d.T[s].a[i] * scaling;
                 double mm = B1*set.M[s].a[i] + (1-B1)*g;
