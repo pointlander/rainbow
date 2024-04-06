@@ -18,22 +18,28 @@ struct Slice {
     int size;
 };
 
-struct Slice MakeSlice(int size) {
-    const int n = size*sizeof(double);
-    double *a = (double *)malloc(n);
+inline struct Slice MakeSlice(int size) {
+    double *a = (double *)calloc(size, sizeof(double));
     struct Slice x = {
         .a = a,
         .size = size
     };
-    memset(a, 0, n);
     return x;
 }
 
-void FreeSlice(struct Slice x) {
+inline void FreeSlice(struct Slice x) {
     free(x.a);
 }
 
-struct Slice Slice(struct Slice a, int begin, int end) {
+inline void Within(struct Slice a, int begin, int end) {
+    if ((end < begin) || (begin < 0) || (end > a.size)) {
+        printf("index out of bounds for slice\n");
+        exit(1);
+    }
+}
+
+inline struct Slice Slice(struct Slice a, int begin, int end) {
+    Within(a, begin, end);
     struct Slice x = {
         .a = a.a+begin,
         .size = end - begin
