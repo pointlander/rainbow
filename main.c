@@ -41,6 +41,30 @@ struct Slice NewSlice(double* a, int begin, int end) {
     return x;
 }
 
+struct Set {
+    struct Slice T[3];
+    struct Slice M[3];
+    struct Slice V[3];
+};
+
+struct Set NewSet(int size) {
+    struct Set set;
+    for (int i = 0; i < 3; i++) {
+        set.T[i] = MakeSlice(size);
+        set.M[i] = MakeSlice(size);
+        set.V[i] = MakeSlice(size);
+    }
+    return set;
+}
+
+void FreeSet(struct Set set) {
+    for (int i = 0; i < 3; i++) {
+        FreeSlice(set.T[i]);
+        FreeSlice(set.M[i]);
+        FreeSlice(set.V[i]);
+    }
+}
+
 struct Data {
     int width;
     int rows;
@@ -255,9 +279,9 @@ struct Data Transform(struct Data *data, struct Slice *t) {
     return cp;
 }
 
-extern double __enzyme_autodiff(void*, struct Slice*, struct Slice*, struct Data*, struct Data*, double*, double*);
-double rainbow(struct Slice *t, struct Data *data, double *loss) {
-    struct Data dat = Transform(data, t);
+extern double __enzyme_autodiff(void*, struct Set*, struct Set*, struct Data*, struct Data*, double*, double*);
+double rainbow(struct Set *set, struct Data *data, double *loss) {
+    struct Data dat = Transform(data, &(set->T[0]));
     struct Slice a = NewSlice(dat.images, 0, 100*dat.width);
     struct Slice b = NewSlice(dat.entropy, 0, 100);
     SelfEntropy(a, b, dat.width);
@@ -280,15 +304,15 @@ int main() {
     load_mnist();
     struct Data data = NewData(SIZE);
     struct Data cp = NewZeroData(SIZE, 100);
-    struct Slice t = MakeSlice(SIZE*32);
-    struct Slice m = MakeSlice(SIZE*32);
-    struct Slice v = MakeSlice(SIZE*32);
+    struct Set set = NewSet(SIZE*32);
     double factor = sqrt(2.0 / ((double)SIZE));
-    for (int i = 0; i < t.size; i++) {
-        t.a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
+    for (int s = 0; s < 3; s++) {
+        for (int i = 0; i < set.T[s].size; i++) {
+            set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
+        }
     }
     for (int e = 0; e < 100; e++) {
-        struct Slice d = MakeSlice(SIZE*32);
+        struct Set d = NewSet(SIZE*32);
         double cost = 0;
         for (int i = 0; i < 2; i++) {
             printf("calculating self entropy\n");
@@ -303,7 +327,7 @@ int main() {
                 struct Data d_data = NewZeroData(SIZE, 100);
                 double loss = 0;
                 double dloss = 0;
-                __enzyme_autodiff((void*) rainbow, &t, &d, &cp, &d_data, &loss, &dloss);
+                __enzyme_autodiff((void*) rainbow, &set, &d, &cp, &d_data, &loss, &dloss);
                 cost += loss;
                 DestroyData(d_data);
                 for (int k = 0; k < 100; k++) {
@@ -323,8 +347,10 @@ int main() {
             printf("%.17f %.17f\n", data.entropy[0], data.entropy[(NUM_TRAIN+NUM_TEST)-1]);
         }
         double norm = 0;
-        for (int i = 0; i < t.size; i++) {
-            norm += d.a[i] * d.a[i];
+        for (int s = 0; s < 3; s++) {
+            for (int i = 0; i < d.T[s].size; i++) {
+                norm += d.T[s].a[i] * d.T[s].a[i];
+            }
         }
         norm = sqrt(norm);
         double scaling = 1;
@@ -333,26 +359,26 @@ int main() {
         }
         double b1 = Pow(B1, e);
         double b2 = Pow(B2, e);
-        for (int i = 0; i < t.size; i++) {
-            double g = d.a[i] * scaling;
-            double mm = B1*m.a[i] + (1-B1)*g;
-            double vv = B2*v.a[i] + (1-B2)*g*g;
-            m.a[i] = mm;
-            v.a[i] = vv;
-            double mhat = mm / (1 - b1);
-            double vhat = vv / (1 - b2);
-            if (vhat < 0) {
-                vhat = 0;
+        for (int s = 0; s < 3; s++) {
+            for (int i = 0; i < d.T[s].size; i++) {
+                double g = d.T[s].a[i] * scaling;
+                double mm = B1*set.M[s].a[i] + (1-B1)*g;
+                double vv = B2*set.V[s].a[i] + (1-B2)*g*g;
+                set.M[s].a[i] = mm;
+                set.V[s].a[i] = vv;
+                double mhat = mm / (1 - b1);
+                double vhat = vv / (1 - b2);
+                if (vhat < 0) {
+                    vhat = 0;
+                }
+                set.T[s].a[i] -= Eta * mhat / (sqrt(vhat) + 1e-8);
             }
-            t.a[i] -= Eta * mhat / (sqrt(vhat) + 1e-8);
         }
-        FreeSlice(d);
+        FreeSet(d);
         printf("cost %f\n", cost);
     }
     printf("\n");
     DestroyData(data);
     DestroyData(cp);
-    FreeSlice(t);
-    FreeSlice(m);
-    FreeSlice(v);
+    FreeSet(set);
 }
