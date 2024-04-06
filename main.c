@@ -4,7 +4,14 @@
 #include <math.h>
 #include "mnist.h"
 
-#define S (1.0 - 1e-300)
+// S is the softmax factor
+const double S = (1.0 - 1e-300);
+// B1 exponential decay of the rate for the first moment estimates
+const double B1 = 0.8;
+// B2 exponential decay rate for the second-moment estimates
+const double B2 = 0.89;
+// Eta is the learning rate
+const double Eta = .1;
 
 struct Slice {
     double* a;
@@ -14,7 +21,10 @@ struct Slice {
 struct Slice MakeSlice(int size) {
     const int n = size*sizeof(double);
     double *a = (double *)malloc(n);
-    struct Slice x = {a, size};
+    struct Slice x = {
+        .a = a,
+        .size = size
+    };
     memset(a, 0, n);
     return x;
 }
@@ -24,7 +34,10 @@ void FreeSlice(struct Slice x) {
 }
 
 struct Slice NewSlice(double* a, int begin, int end) {
-    struct Slice x = {a+begin, end - begin};
+    struct Slice x = {
+        .a = a+begin,
+        .size = end - begin
+    };
     return x;
 }
 
@@ -41,26 +54,32 @@ struct Data NewData(int width) {
     double* images = (double*)malloc(rows*width*sizeof(double));
     char* labels = (char*)malloc(rows);
     double* entropy = (double*)malloc(rows*sizeof(double));
-    struct Data data = {width, rows, images, labels, entropy};
+    struct Data data = {
+        .width = width,
+        .rows = rows,
+        .images = images,
+        .labels = labels,
+        .entropy = entropy
+    };
     int index = 0;
-    for (int i=0; i<NUM_TRAIN; i++) {
+    for (int i = 0; i < NUM_TRAIN; i++) {
         double sum = 0;
-        for (int j=0; j<width; j++) {
+        for (int j = 0; j < width; j++) {
             sum += (double)train_image_char[i][j];
         }
-        for (int j=0; j<width; j++) {
+        for (int j = 0; j < width; j++) {
             images[index] = ((double)train_image_char[i][j])/sum;
             index++;
         }
         labels[i] = train_label_char[i][0];
         entropy[i] = 0;
     }
-    for (int i=0; i<NUM_TEST; i++) {
+    for (int i = 0; i < NUM_TEST; i++) {
         double sum = 0;
-        for (int j=0; j<width; j++) {
+        for (int j = 0; j < width; j++) {
             sum += (double)test_image_char[i][j];
         }
-        for (int j=0; j<width; j++) {
+        for (int j = 0; j < width; j++) {
             images[index] = ((double)test_image_char[i][j])/sum;
             index++;
         }
@@ -81,7 +100,13 @@ struct Data NewZeroData(int width, int rows) {
         labels[i] = 0;
         entropy[i] = 0;
     }
-    struct Data data = {width, rows, images, labels, entropy};
+    struct Data data = {
+        .width = width,
+        .rows = rows,
+        .images = images,
+        .labels = labels,
+        .entropy = entropy
+    };
     return data;
 }
 
@@ -128,11 +153,11 @@ void quickSort(struct Data data, int low, int high) {
 }
 
 void SortData(struct Data data) {
-    quickSort(data, 0, (NUM_TRAIN+NUM_TEST) - 1);
+    quickSort(data, 0, data.rows - 1);
 }
 
 int IsSorted(struct Data data) {
-    for (int i = 0; i < (NUM_TRAIN+NUM_TEST) - 1; i++) {
+    for (int i = 0; i < (data.rows - 1); i++) {
         if (data.entropy[i] > data.entropy[i+1]) {
             return 0;
         }
@@ -148,7 +173,7 @@ void DestroyData(struct Data data) {
 
 inline double dot(struct Slice x, struct Slice y) {
     double sum = 0;
-    for (int i=0; i<x.size; i++) {
+    for (int i = 0; i < x.size; i++) {
         sum += x.a[i]*y.a[i];
     }
     return sum;
@@ -156,7 +181,7 @@ inline double dot(struct Slice x, struct Slice y) {
 
 inline double dotT(struct Slice x, double* y, int col, int width) {
     double sum = 0;
-    for (int i=0; i<x.size; i++) {
+    for (int i = 0; i < x.size; i++) {
         sum += x.a[i]*y[i*width+col];
     }
     return sum;
@@ -171,11 +196,11 @@ void softmax(struct Slice x) {
     }
     double s = max*S;
     double sum = 0;
-    for (int i=0; i<x.size; i++) {
+    for (int i = 0; i < x.size; i++) {
         x.a[i] = exp(x.a[i] - s);
         sum += x.a[i];
     }
-    for (int i=0; i<x.size; i++) {
+    for (int i = 0; i < x.size; i++) {
         x.a[i] /= sum;
     }
 }
@@ -185,20 +210,20 @@ void SelfEntropy(struct Slice images, struct Slice e, int width) {
     const int rows = images.size/width;
     struct Slice entropies = MakeSlice(cols);
     struct Slice values = MakeSlice(rows);
-    for (int i=0; i<rows; i++) {
-        for (int j=0; j<rows; j++) {
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < rows; j++) {
             values.a[j] = dot(NewSlice(images.a, i*width, (i+1)*width),
                 NewSlice(images.a, j*width, (j+1)*width));
         }
         softmax(values);
 
-        for (int j=0; j<cols; j++) {
+        for (int j = 0; j < cols; j++) {
             entropies.a[j] = dotT(values, images.a, j, width);
         }
         softmax(entropies);
 
         double entropy = 0;
-        for (int j=0; j<entropies.size; j++) {
+        for (int j = 0; j < entropies.size; j++) {
             entropy += entropies.a[j] * log(entropies.a[j]);
         }
         e.a[i] = -entropy;
@@ -209,7 +234,13 @@ void SelfEntropy(struct Slice images, struct Slice e, int width) {
 
 struct Data Transform(struct Data *data, struct Slice *t) {
     const int rows = t->size/data->width;
-    struct Data cp = {rows, data->rows, malloc(data->rows*rows*sizeof(double)), data->labels, data->entropy};
+    struct Data cp = {
+        .width = rows,
+        .rows = data->rows,
+        .images = malloc(data->rows*rows*sizeof(double)),
+        .labels = data->labels,
+        .entropy = data->entropy
+    };
     const int width = data->width;
     double *a = t->a;
     double *b = data->images;
@@ -239,13 +270,6 @@ double rainbow(struct Slice *t, struct Data *data, double *loss) {
     *loss = sum;
     return sum;
 }
-
- // B1 exponential decay of the rate for the first moment estimates
-const double B1 = 0.8;
-// B2 exponential decay rate for the second-moment estimates
-const double B2 = 0.89;
-// Eta is the learning rate
-const double Eta = .1;
 
 inline double Pow(double x, int i) {
     return pow(x, (double)(i+1));
