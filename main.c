@@ -1,4 +1,4 @@
-// test.c
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -18,7 +18,7 @@ struct Slice {
     int size;
 };
 
-inline struct Slice MakeSlice(int size) {
+struct Slice MakeSlice(int size) {
     double *a = (double *)calloc(size, sizeof(double));
     struct Slice x = {
         .a = a,
@@ -27,19 +27,28 @@ inline struct Slice MakeSlice(int size) {
     return x;
 }
 
-inline void FreeSlice(struct Slice x) {
+void FreeSlice(struct Slice x) {
     free(x.a);
 }
 
-inline void Within(struct Slice a, int begin, int end) {
+void Within(struct Slice a, int n, ...) {
+    va_list ptr;
+    va_start(ptr, n);
+    for (int i = 0; i < n; i++) {
+        int index = va_arg(ptr, int);
+        if ((index < 0) || (index > a.size)) {
+             printf("index out of bounds for slice\n");
+            exit(1);
+        }
+    }
+    va_end(ptr);
+}
+
+struct Slice Slice(struct Slice a, int begin, int end) {
     if ((end < begin) || (begin < 0) || (end > a.size)) {
         printf("index out of bounds for slice\n");
         exit(1);
     }
-}
-
-inline struct Slice Slice(struct Slice a, int begin, int end) {
-    Within(a, begin, end);
     struct Slice x = {
         .a = a.a+begin,
         .size = end - begin
@@ -92,6 +101,7 @@ struct Data NewData(int width) {
         .entropy = entropy
     };
     int index = 0;
+    Within(images, 2, 0, NUM_TRAIN*width);
     for (int i = 0; i < NUM_TRAIN; i++) {
         double sum = 0;
         for (int j = 0; j < width; j++) {
@@ -104,6 +114,7 @@ struct Data NewData(int width) {
         labels[i] = train_label_char[i][0];
         entropy.a[i] = 0;
     }
+    Within(images, 2, NUM_TRAIN*width, (NUM_TRAIN+NUM_TEST)*width);
     for (int i = 0; i < NUM_TEST; i++) {
         double sum = 0;
         for (int j = 0; j < width; j++) {
@@ -197,7 +208,7 @@ void FreeData(struct Data data) {
     FreeSlice(data.entropy);
 }
 
-inline double dot(struct Slice x, struct Slice y) {
+double dot(struct Slice x, struct Slice y) {
     double sum = 0;
     for (int i = 0; i < x.size; i++) {
         sum += x.a[i]*y.a[i];
@@ -205,7 +216,7 @@ inline double dot(struct Slice x, struct Slice y) {
     return sum;
 }
 
-inline double dotT(struct Slice x, double* y, int col, int width) {
+double dotT(struct Slice x, double* y, int col, int width) {
     double sum = 0;
     for (int i = 0; i < x.size; i++) {
         sum += x.a[i]*y[i*width+col];
@@ -293,7 +304,7 @@ double rainbow(struct Set *set, struct Data *data, double *loss) {
     return sum;
 }
 
-inline double Pow(double x, int i) {
+double Pow(double x, int i) {
     return pow(x, (double)(i+1));
 }
 
