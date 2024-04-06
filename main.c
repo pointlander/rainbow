@@ -245,20 +245,20 @@ void softmax(struct Slice x) {
     }
 }
 
-void SelfEntropy(struct Slice images, struct Slice e, int width) {
+void SelfEntropy(struct Slice q, struct Slice k, struct Slice v, struct Slice e, int width) {
     const int cols = width;
-    const int rows = images.size/width;
+    const int rows = q.size/width;
     struct Slice entropies = MakeSlice(cols);
     struct Slice values = MakeSlice(rows);
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < rows; j++) {
-            values.a[j] = dot(Slice(images, i*width, (i+1)*width),
-                Slice(images, j*width, (j+1)*width));
+            values.a[j] = dot(Slice(q, i*width, (i+1)*width),
+                Slice(k, j*width, (j+1)*width));
         }
         softmax(values);
 
         for (int j = 0; j < cols; j++) {
-            entropies.a[j] = dotT(values, images.a, j, width);
+            entropies.a[j] = dotT(values, v.a, j, width);
         }
         softmax(entropies);
 
@@ -296,16 +296,18 @@ struct Data Transform(struct Data *data, struct Slice *t) {
 
 extern double __enzyme_autodiff(void*, struct Set*, struct Set*, struct Data*, struct Data*, double*, double*);
 double rainbow(struct Set *set, struct Data *data, double *loss) {
-    struct Data dat = Transform(data, &(set->T[0]));
-    SelfEntropy(dat.images, dat.entropy, dat.width);
+    struct Data q = Transform(data, &(set->T[0]));
+    struct Data k = Transform(data, &(set->T[1]));
+    struct Data v = Transform(data, &(set->T[2]));
+    SelfEntropy(q.images, k.images, v.images, data->entropy, q.width);
     double sum = 0;
     Within(data->entropy, 1, 100);
-    Within(dat.entropy, 1, 100);
     for (int i = 0; i < 100; i++) {
-        data->entropy.a[i] = dat.entropy.a[i];
-        sum += dat.entropy.a[i];
+        sum += data->entropy.a[i];
     }
-    FreeSlice(dat.images);
+    FreeSlice(q.images);
+    FreeSlice(k.images);
+    FreeSlice(v.images);
     *loss = sum;
     return sum;
 }
