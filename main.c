@@ -101,7 +101,7 @@ struct Data NewData(int width) {
         .entropy = entropy
     };
     int index = 0;
-    Within(images, 2, 0, NUM_TRAIN*width);
+    Within(images, 1, NUM_TRAIN*width);
     for (int i = 0; i < NUM_TRAIN; i++) {
         double sum = 0;
         for (int j = 0; j < width; j++) {
@@ -148,6 +148,7 @@ struct Data NewZeroData(int width, int rows) {
 }
 
 void swap(struct Data data, int a, int b) {
+    Within(data.images, 2, a*data.width + data.width, b*data.width + data.width);
     for (int k = 0; k < data.width; k++) {
         double s = data.images.a[a*data.width + k];
         data.images.a[a*data.width + k] = data.images.a[b*data.width + k];
@@ -166,6 +167,7 @@ int partition(struct Data data, int low, int high) {
     int i = low;
     int j = high;
 
+    Within(data.entropy, 1, j);
     while (i < j) {
         while (data.entropy.a[i] <= pivot && i <= high - 1) {
             i++;
@@ -194,6 +196,7 @@ void SortData(struct Data data) {
 }
 
 int IsSorted(struct Data data) {
+    Within(data.entropy, 1, data.rows - 1);
     for (int i = 0; i < (data.rows - 1); i++) {
         if (data.entropy.a[i] > data.entropy.a[i+1]) {
             return 0;
@@ -260,6 +263,7 @@ void SelfEntropy(struct Slice images, struct Slice e, int width) {
         softmax(entropies);
 
         double entropy = 0;
+        Within(entropies, 1, entropies.size);
         for (int j = 0; j < entropies.size; j++) {
             entropy += entropies.a[j] * log(entropies.a[j]);
         }
@@ -295,6 +299,8 @@ double rainbow(struct Set *set, struct Data *data, double *loss) {
     struct Data dat = Transform(data, &(set->T[0]));
     SelfEntropy(dat.images, dat.entropy, dat.width);
     double sum = 0;
+    Within(data->entropy, 1, 100);
+    Within(dat.entropy, 1, 100);
     for (int i = 0; i < 100; i++) {
         data->entropy.a[i] = dat.entropy.a[i];
         sum += dat.entropy.a[i];
@@ -325,6 +331,10 @@ int main() {
         double cost = 0;
         for (int i = 0; i < 2; i++) {
             printf("calculating self entropy\n");
+            Within(cp.images, 1, 99*SIZE + SIZE);
+            Within(data.images, 1, (data.rows - 1)*SIZE + SIZE);
+            Within(cp.entropy, 1, 100);
+            Within(data.entropy, 1, data.rows);
             for (int j = 0; j <= (data.rows - 100); j += 100) {
                 for (int k = 0; k < 100; k++) {
                     for (int l = 0; l < SIZE; l++) {
@@ -357,6 +367,7 @@ int main() {
         }
         double norm = 0;
         for (int s = 0; s < 3; s++) {
+            Within(d.T[s], 1, d.T[s].size);
             for (int i = 0; i < d.T[s].size; i++) {
                 norm += d.T[s].a[i] * d.T[s].a[i];
             }
@@ -369,6 +380,9 @@ int main() {
         double b1 = Pow(B1, e);
         double b2 = Pow(B2, e);
         for (int s = 0; s < 3; s++) {
+            Within(d.T[s], 1, d.T[s].size);
+            Within(set.M[s], 1, d.T[s].size);
+            Within(set.V[s], 1, d.T[s].size);
             for (int i = 0; i < d.T[s].size; i++) {
                 double g = d.T[s].a[i] * scaling;
                 double mm = B1*set.M[s].a[i] + (1-B1)*g;
