@@ -1,6 +1,7 @@
+#include <math.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h>
 #include "mnist.h"
 
 // S is the softmax factor
@@ -309,11 +310,57 @@ double Pow(double x, int i) {
     return pow(x, (double)(i+1));
 }
 
+struct Thread {
+    int offset;
+    int batchSize;
+    pthread_t thread;
+    struct Data data;
+    struct Set set;
+    struct Set d;
+    double cost;
+};
+
+void *Rainbow(void *ptr) {
+    struct Thread *t = (struct Thread*)ptr;
+    struct Set d = NewSet(SIZE*32);
+    t->d = d; 
+    struct Data cp = NewZeroData(SIZE, 100);
+    Within(cp.images, 99*SIZE + SIZE);
+    Within(cp.entropy, 100);
+    for (int j = t->offset; j < (t->offset + t->batchSize); j++) {
+        for (int k = 0; k < 100; k++) {
+            for (int l = 0; l < SIZE; l++) {
+                cp.images.a[k*SIZE + l] = t->data.images.a[(k+j*100)*SIZE + l];
+            }
+            cp.labels[k] = t->data.labels[k + j*100];
+            cp.entropy.a[k] = t->data.entropy.a[k + j*100];
+        }
+        struct Data d_data = NewZeroData(SIZE, 100);
+        double loss = 0;
+        double dloss = 0;
+        __enzyme_autodiff((void*) rainbow, &(t->set), &d, &cp, &d_data, &loss, &dloss);
+        t->cost += loss;
+        FreeData(d_data);
+        for (int k = 0; k < 100; k++) {
+            for (int l = 0; l < SIZE; l++) {
+                t->data.images.a[(k+j*100)*SIZE + l] = cp.images.a[k*SIZE + l];
+            }
+            t->data.labels[k + j*100] = cp.labels[k];
+            t->data.entropy.a[k + j*100] = cp.entropy.a[k];
+        }
+    }
+    FreeData(cp);
+    return 0;
+}
+
 int main() {
     srand(1);
+    const int numCPU = sysconf(_SC_NPROCESSORS_ONLN);
     load_mnist();
     struct Data data = NewData(SIZE);
-    struct Data cp = NewZeroData(SIZE, 100);
+    const int batchSize = (data.rows/100)/numCPU;
+    const int spares = (data.rows/100)%numCPU;
+    printf("%d %d %d\n", numCPU, batchSize, spares);
     struct Set set = NewSet(SIZE*32);
     double factor = sqrt(2.0 / ((double)SIZE));
     for (int s = 0; s < 3; s++) {
@@ -326,31 +373,32 @@ int main() {
         double cost = 0;
         for (int i = 0; i < 2; i++) {
             printf("calculating self entropy\n");
-            Within(cp.images, 99*SIZE + SIZE);
             Within(data.images, (data.rows - 1)*SIZE + SIZE);
-            Within(cp.entropy, 100);
             Within(data.entropy, data.rows);
-            for (int j = 0; j <= (data.rows - 100); j += 100) {
-                for (int k = 0; k < 100; k++) {
-                    for (int l = 0; l < SIZE; l++) {
-                        cp.images.a[k*SIZE + l] = data.images.a[(k+j)*SIZE + l];
-                    }
-                    cp.labels[k] = data.labels[k + j];
-                    cp.entropy.a[k] = data.entropy.a[k + j];
+            struct Thread threads[numCPU];
+            int j = 0;
+            int cpu = 0;
+            while (j < (numCPU*batchSize + spares)) {
+                threads[cpu].offset = j;
+                threads[cpu].batchSize = batchSize;
+                if (cpu == 0) {
+                    threads[cpu].batchSize += spares;
                 }
-                struct Data d_data = NewZeroData(SIZE, 100);
-                double loss = 0;
-                double dloss = 0;
-                __enzyme_autodiff((void*) rainbow, &set, &d, &cp, &d_data, &loss, &dloss);
-                cost += loss;
-                FreeData(d_data);
-                for (int k = 0; k < 100; k++) {
-                    for (int l = 0; l < SIZE; l++) {
-                        data.images.a[(k+j)*SIZE + l] = cp.images.a[k*SIZE + l];
+                threads[cpu].data = data;
+                threads[cpu].set = set;
+                threads[cpu].cost = 0;
+                pthread_create(&threads[cpu].thread, 0, Rainbow, (void*)&threads[cpu]);
+                j += threads[cpu].batchSize;
+                cpu++;
+            }
+            for (int j = 0; j < numCPU; j++) {
+                pthread_join(threads[j].thread, NULL);
+                for (int l = 0; l < 3; l++) {
+                    for (int k = 0; k < d.T[l].size; k++) {
+                        d.T[l].a[k] += threads[j].d.T[l].a[k];
                     }
-                    data.labels[k + j] = cp.labels[k];
-                    data.entropy.a[k + j] = cp.entropy.a[k];
                 }
+                cost += threads[j].cost;
             }
             if (IsSorted(data)) {
                 printf("is sorted\n");
@@ -397,6 +445,5 @@ int main() {
     }
     printf("\n");
     FreeData(data);
-    FreeData(cp);
     FreeSet(set);
 }
