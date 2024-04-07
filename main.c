@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include "mnist.h"
 
 // S is the softmax factor
@@ -353,8 +354,27 @@ void *Rainbow(void *ptr) {
     return 0;
 }
 
+FILE *fp = NULL;
+
+void handler(int sig) {
+    fclose(fp);
+    exit(0);
+}
+
 int main() {
     srand(1);
+    signal(SIGINT, handler);
+    fp = fopen("epochs.txt", "w");
+    if (fp == NULL) {
+        printf("Error opening file!\n");
+        return 1;
+    }
+    int result = fprintf(fp, "# epoch cost\n");
+    if (result == EOF) {
+        printf("Error writing to file!\n");
+        fclose(fp);
+        return 1;
+    }
     const int numCPU = sysconf(_SC_NPROCESSORS_ONLN);
     load_mnist();
     struct Data data = NewData(SIZE);
@@ -442,8 +462,15 @@ int main() {
         }
         FreeSet(d);
         printf("cost %f\n", cost);
+        int result = fprintf(fp, "%d %f\n", e, cost);
+        if (result == EOF) {
+            printf("Error writing to file!\n");
+            fclose(fp);
+            return 1;
+        }
     }
     printf("\n");
+    fclose(fp);
     FreeData(data);
     FreeSet(set);
 }
