@@ -317,7 +317,7 @@ struct Thread {
     struct Data data;
     struct Set set;
     struct Set d;
-    int cost;
+    double cost;
 };
 
 void *Rainbow(void *ptr) {
