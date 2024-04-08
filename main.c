@@ -389,9 +389,11 @@ int main() {
             set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
         }
     }
-    for (int e = 0; e < 100; e++) {
+    double cost = 0;
+    const int epochs = 100;
+    for (int e = 0; e < epochs; e++) {
         struct Set d = NewSet(SIZE*32);
-        double cost = 0;
+        cost = 0;
         for (int i = 0; i < 2; i++) {
             printf("calculating self entropy\n");
             Within(data.images, (data.rows - 1)*SIZE + SIZE);
@@ -471,6 +473,51 @@ int main() {
         }
     }
     printf("\n");
+    struct ProtoTf64__Set protoSet = PROTO_TF64__SET__INIT;
+    struct ProtoTf64__Weights *weights[3];
+    for (int i = 0; i < 3; i++) {
+        struct ProtoTf64__Weights *weight = calloc(1, sizeof(struct ProtoTf64__Weights));
+        *weight = (struct ProtoTf64__Weights)PROTO_TF64__WEIGHTS__INIT;
+        weight->n_shape = 2;
+        weight->shape = calloc(2, sizeof(int64_t));
+        weight->shape[0] = SIZE;
+        weight->shape[1] = 32;
+        weight->n_values = set.T[i].size;
+        weight->values = set.T[i].a;
+        weight->n_states = set.M[i].size + set.V[i].size;
+        weight->states = calloc(weight->n_states, sizeof(double));
+        int index = 0;
+        for (int j = 0; j < set.M[i].size; j++) {
+            weight->states[index] = set.M[i].a[index];
+            index++;
+        }
+        for (int j = 0; j < set.V[i].size; j++) {
+            weight->states[index] = set.V[i].a[index];
+            index++;
+        }
+        weights[i] = weight;
+    }
+    protoSet.cost = cost;
+    protoSet.epoch = epochs;
+    protoSet.n_weights = 3;
+    protoSet.weights = weights;
+    void *buf;
+    unsigned len;
+    len = proto_tf64__set__get_packed_size(&protoSet);
+    buf = malloc(len);
+    proto_tf64__set__pack(&protoSet, buf);
+    FILE *output = fopen("weights.bin", "w");
+    if (fp == NULL) {
+        printf("Error opening weights file!\n");
+        return 1;
+    };
+    result = fwrite(buf,len,1,output);
+    if (result == EOF) {
+        printf("Error writing to file!\n");
+        fclose(fp);
+        return 1;
+    }
+    fclose(output);
     fclose(fp);
     FreeData(data);
     FreeSet(set);
