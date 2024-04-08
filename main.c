@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include "mnist.h"
+#include "set.pb-c.h"
 
 // S is the softmax factor
 const double S = (1.0 - 1e-300);
