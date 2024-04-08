@@ -362,9 +362,52 @@ void handler(int sig) {
     exit(0);
 }
 
-int main() {
+int main(int argc, char *argv[]) {
     srand(1);
     signal(SIGINT, handler);
+
+    if (argc > 1) {
+        printf("weights %s\n", argv[1]);
+        FILE *f = fopen(argv[1], "rb");
+        if (f == NULL) {
+            printf("Error opening file!\n");
+            return 1;
+        }
+        int result = fseek(f, 0, SEEK_END);
+        if (result == EOF) {
+            printf("Error seeking in file!\n");
+            fclose(f);
+            return 1;
+        }
+        long fsize = ftell(f);
+        result = fseek(f, 0, SEEK_SET);
+        if (result == EOF) {
+            printf("Error seeking in file!\n");
+            fclose(f);
+            return 1;
+        }
+        uint8_t *buf = malloc(fsize);
+        result = fread(buf, fsize, 1, f);
+        if (result == EOF) {
+            printf("Error reading from file!\n");
+            fclose(f);
+            return 1;
+        }
+        result = fclose(f);
+        if (result == EOF) {
+            printf("Error closing file!\n");
+            fclose(f);
+            return 1;
+        }
+        struct ProtoTf64__Set *set;
+        set = proto_tf64__set__unpack(NULL, fsize, buf);
+        /*for (int i = 0; i < set->weights[0]->n_values; i++) {
+            printf("%f ", set->weights[0]->values[i]);
+        }
+        printf("\n");*/
+        exit(1);
+    }
+
     fp = fopen("epochs.txt", "w");
     if (fp == NULL) {
         printf("Error opening file!\n");
