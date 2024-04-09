@@ -303,16 +303,9 @@ double rainbow(struct Set *set, struct Data *data, double *loss) {
         data->entropy.a[i] = e.a[i];
         sum += e.a[i];
     }
-    double avg = sum/100.0;
-    double var = 0;
-    for (int i = 0; i < e.size; i++) {
-        double diff = avg - e.a[i];
-        var += diff*diff;
-    }
-    var /= 100.0;
     FreeSlice(e);
-    *loss = -var;
-    return -var;
+    *loss = sum;
+    return sum;
 }
 
 double Pow(double x, int i) {
@@ -501,12 +494,12 @@ int main(int argc, char *argv[]) {
         }
     }
     double cost = 0;
-    const int epochs = 100;
+    const int epochs = 256;
     for (int e = 0; e < epochs; e++) {
         struct Set d = NewSet(SIZE*32);
         cost = 0;
-        for (int i = 0; i < 2; i++) {
-            printf("calculating self entropy\n");
+        for (int i = 0; i < 3; i++) {
+            printf("calculating self entropy %d\n", i);
             Within(data.images, (data.rows - 1)*SIZE + SIZE);
             Within(data.entropy, data.rows);
             struct Thread threads[numCPU];
@@ -575,7 +568,7 @@ int main(int argc, char *argv[]) {
             }
         }
         FreeSet(d);
-        printf("cost %.32f\n", cost);
+        printf("cost %.32f, %d\n", cost, e);
         int result = fprintf(fp, "%d %.32f\n", e, cost);
         if (result == EOF) {
             printf("Error writing to file!\n");
