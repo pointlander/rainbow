@@ -303,9 +303,16 @@ double rainbow(struct Set *set, struct Data *data, double *loss) {
         data->entropy.a[i] = e.a[i];
         sum += e.a[i];
     }
+    double avg = sum/100.0;
+    double var = 0;
+    for (int i = 0; i < e.size; i++) {
+        double diff = avg - e.a[i];
+        var += diff*diff;
+    }
+    var /= 100.0;
     FreeSlice(e);
-    *loss = sum;
-    return sum;
+    *loss = -var;
+    return -var;
 }
 
 double Pow(double x, int i) {
@@ -568,8 +575,8 @@ int main(int argc, char *argv[]) {
             }
         }
         FreeSet(d);
-        printf("cost %f\n", cost);
-        int result = fprintf(fp, "%d %f\n", e, cost);
+        printf("cost %.32f\n", cost);
+        int result = fprintf(fp, "%d %.32f\n", e, cost);
         if (result == EOF) {
             printf("Error writing to file!\n");
             fclose(fp);
