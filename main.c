@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
-#include "mnist.h"
+#include "mnist/mnist.h"
 #include "set.pb-c.h"
 
 // S is the softmax factor
