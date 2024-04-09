@@ -81,6 +81,7 @@ struct Data {
     int rows;
     struct Slice images;
     char* labels;
+    struct Slice vectors;
     struct Slice entropy;
 };
 
@@ -88,12 +89,14 @@ struct Data NewData(int width) {
     int rows = (NUM_TRAIN+NUM_TEST);
     struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)malloc(rows);
+    struct Slice vectors = MakeSlice(rows*32);
     struct Slice entropy = MakeSlice(rows);
     struct Data data = {
         .width = width,
         .rows = rows,
         .images = images,
         .labels = labels,
+        .vectors = vectors,
         .entropy = entropy
     };
     int index = 0;
@@ -130,6 +133,7 @@ struct Data NewData(int width) {
 struct Data NewZeroData(int width, int rows) {
     struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)malloc(rows);
+    struct Slice vectors = MakeSlice(rows*32);
     struct Slice entropy = MakeSlice(rows);
     for (int i = 0; i < rows; i++) {
         labels[i] = 0;
@@ -139,6 +143,7 @@ struct Data NewZeroData(int width, int rows) {
         .rows = rows,
         .images = images,
         .labels = labels,
+        .vectors = vectors,
         .entropy = entropy
     };
     return data;
@@ -206,6 +211,7 @@ int IsSorted(struct Data data) {
 void FreeData(struct Data data) {
     FreeSlice(data.images);
     free(data.labels);
+    FreeSlice(data.vectors);
     FreeSlice(data.entropy);
 }
 
@@ -243,12 +249,11 @@ void softmax(struct Slice x) {
     }
 }
 
-struct Slice SelfEntropy(struct Slice q, struct Slice k, struct Slice v, int width) {
+void SelfEntropy(struct Slice q, struct Slice k, struct Slice v, int width, struct Slice e, struct Slice vectors) {
     const int cols = width;
     const int rows = q.size/width;
     struct Slice entropies = MakeSlice(cols);
     struct Slice values = MakeSlice(rows);
-    struct Slice e = MakeSlice(rows);
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < rows; j++) {
             values.a[j] = dot(Slice(q, i*width, (i+1)*width),
@@ -258,6 +263,7 @@ struct Slice SelfEntropy(struct Slice q, struct Slice k, struct Slice v, int wid
 
         for (int j = 0; j < cols; j++) {
             entropies.a[j] = dotT(values, v.a, j, width);
+            vectors.a[i*cols + j] = entropies.a[j];
         }
         softmax(entropies);
 
@@ -270,7 +276,6 @@ struct Slice SelfEntropy(struct Slice q, struct Slice k, struct Slice v, int wid
     }
     FreeSlice(entropies);
     FreeSlice(values);
-    return e;
 }
 
 struct Slice Transform(struct Data *data, struct Slice *t) {
@@ -293,17 +298,26 @@ double rainbow(struct Set *set, struct Data *data, double *loss) {
     struct Slice q = Transform(data, &(set->T[0]));
     struct Slice k = Transform(data, &(set->T[1]));
     struct Slice v = Transform(data, &(set->T[2]));
-    struct Slice e = SelfEntropy(q, k, v, (set->T[0].size)/data->width);
+    const int cols = (set->T[0].size)/data->width;
+    const int rows = q.size/cols;
+    struct Slice e = MakeSlice(rows);
+    struct Slice vectors = MakeSlice(cols*rows);
+    SelfEntropy(q, k, v, cols, e, vectors);
     FreeSlice(q);
     FreeSlice(k);
     FreeSlice(v);
     Within(e, 100);
+    Within(vectors, e.size*cols);
     double sum = 0;
     for (int i = 0; i < e.size; i++) {
         data->entropy.a[i] = e.a[i];
+        for (int j = 0; j < cols; j++) {
+            data->vectors.a[i*cols + j] = vectors.a[i*cols + j];
+        }
         sum += e.a[i];
     }
     FreeSlice(e);
+    FreeSlice(vectors);
     *loss = sum;
     return sum;
 }
@@ -328,6 +342,7 @@ void *Rainbow(void *ptr) {
     t->d = d; 
     struct Data cp = NewZeroData(SIZE, 100);
     Within(cp.images, 99*SIZE + SIZE);
+    Within(cp.vectors, 100*32);
     Within(cp.entropy, 100);
     for (int j = t->offset; j < (t->offset + t->batchSize); j++) {
         for (int k = 0; k < 100; k++) {
@@ -335,6 +350,9 @@ void *Rainbow(void *ptr) {
                 cp.images.a[k*SIZE + l] = t->data.images.a[(k+j*100)*SIZE + l];
             }
             cp.labels[k] = t->data.labels[k + j*100];
+            for (int l = 0; l < 32; l++) {
+                cp.vectors.a[k*32 + l] = t->data.vectors.a[(k+j*100)*32 + l];
+            }
             cp.entropy.a[k] = t->data.entropy.a[k + j*100];
         }
         struct Data d_data = NewZeroData(SIZE, 100);
@@ -348,6 +366,9 @@ void *Rainbow(void *ptr) {
                 t->data.images.a[(k+j*100)*SIZE + l] = cp.images.a[k*SIZE + l];
             }
             t->data.labels[k + j*100] = cp.labels[k];
+            for (int l = 0; l < 32; l++) {
+                t->data.vectors.a[(k+j*100)*32 + l] = cp.vectors.a[k*32 + l];
+            }
             t->data.entropy.a[k + j*100] = cp.entropy.a[k];
         }
     }
@@ -501,6 +522,7 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < 3; i++) {
             printf("calculating self entropy %d\n", i);
             Within(data.images, (data.rows - 1)*SIZE + SIZE);
+            Within(data.vectors, data.rows*32);
             Within(data.entropy, data.rows);
             struct Thread threads[numCPU];
             int j = 0;
