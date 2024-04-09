@@ -121,7 +121,7 @@ struct Data NewData(int width) {
             images.a[index] = ((double)test_image_char[i][j])/sum;
             index++;
         }
-        labels[NUM_TRAIN+i] = train_label_char[i][0];
+        labels[NUM_TRAIN+i] = test_label_char[i][0] + 10;
         entropy.a[NUM_TRAIN+i] = 0;
     }
     return data;
@@ -365,6 +365,7 @@ void handler(int sig) {
 int main(int argc, char *argv[]) {
     srand(1);
     signal(SIGINT, handler);
+    load_mnist();
 
     if (argc > 1) {
         printf("weights %s\n", argv[1]);
@@ -401,10 +402,71 @@ int main(int argc, char *argv[]) {
         }
         struct ProtoTf64__Set *set;
         set = proto_tf64__set__unpack(NULL, fsize, buf);
-        /*for (int i = 0; i < set->weights[0]->n_values; i++) {
-            printf("%f ", set->weights[0]->values[i]);
+        struct Set weights;
+        for (int i = 0; i < 3; i++) {
+            weights.T[i].size = set->weights[i]->n_values;
+            weights.T[i].a = set->weights[i]->values;
+            weights.M[i].size = set->weights[i]->n_values;
+            weights.M[i].a = set->weights[i]->states;
+            weights.V[i].size = set->weights[i]->n_values;
+            weights.V[i].a = set->weights[i]->states + set->weights[i]->n_values;
         }
-        printf("\n");*/
+        struct Data data = NewData(SIZE);
+
+        for (int i = 0; i < 16; i++) {
+            printf("calculating self entropy\n");
+            struct Data cp = NewZeroData(SIZE, 100);
+            Within(cp.images, 99*SIZE + SIZE);
+            Within(cp.entropy, 100);
+            for (int j = 0; j < data.rows; j += 100) {
+                for (int k = 0; k < 100; k++) {
+                    for (int l = 0; l < SIZE; l++) {
+                        cp.images.a[k*SIZE + l] = data.images.a[(k+j)*SIZE + l];
+                    }
+                    cp.labels[k] = data.labels[k + j];
+                    cp.entropy.a[k] = data.entropy.a[k + j];
+                }
+                double loss = 0;
+                rainbow(&weights, &cp, &loss);
+                for (int k = 0; k < 100; k++) {
+                    for (int l = 0; l < SIZE; l++) {
+                        data.images.a[(k+j)*SIZE + l] = cp.images.a[k*SIZE + l];
+                    }
+                    data.labels[k + j] = cp.labels[k];
+                    data.entropy.a[k + j] = cp.entropy.a[k];
+                }
+            }
+            FreeData(cp);
+            if (IsSorted(data)) {
+                printf("is sorted\n");
+                printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
+                break;
+            }
+            printf("sorting\n");
+            SortData(data);
+            printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
+        }
+
+        int correct = 0;
+        for (int i = 0; i < (data.rows-1); i++) {
+            char current = data.labels[i];
+            if (current > 9) {
+                current -= 10;
+                char next = data.labels[i+1];
+                if (next > 9) {
+                    next -= 10;
+                }
+                if (current == next) {
+                    correct++;
+                }
+            }
+        }
+        printf("correct %d %f\n", correct, ((double)correct)/((double)10000));
+
+        FreeData(data);
+        proto_tf64__set__free_unpacked(set, NULL);
+        free(buf);
+        printf("\n");
         exit(1);
     }
 
@@ -420,7 +482,6 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     const int numCPU = sysconf(_SC_NPROCESSORS_ONLN);
-    load_mnist();
     struct Data data = NewData(SIZE);
     const int batchSize = (data.rows/100)/numCPU;
     const int spares = (data.rows/100)%numCPU;
