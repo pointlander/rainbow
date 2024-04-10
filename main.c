@@ -106,7 +106,7 @@ struct Data {
 struct Data NewData(int width) {
     int rows = (NUM_TRAIN+NUM_TEST);
     struct Slice images = MakeSlice(rows*width);
-    char* labels = (char*)malloc(rows);
+    char* labels = (char*)calloc(rows, sizeof(char));
     struct Slice vectors = MakeSlice(rows*32);
     struct Slice entropy = MakeSlice(rows);
     struct Data data = {
@@ -129,7 +129,6 @@ struct Data NewData(int width) {
             index++;
         }
         labels[i] = train_label_char[i][0];
-        entropy.a[i] = 0;
     }
     Within(images, NUM_TRAIN*width);
     Within(images, (NUM_TRAIN+NUM_TEST)*width);
@@ -143,19 +142,15 @@ struct Data NewData(int width) {
             index++;
         }
         labels[NUM_TRAIN+i] = test_label_char[i][0] + 10;
-        entropy.a[NUM_TRAIN+i] = 0;
     }
     return data;
 }
 
 struct Data NewZeroData(int width, int rows) {
     struct Slice images = MakeSlice(rows*width);
-    char* labels = (char*)malloc(rows);
+    char* labels = (char*)calloc(rows, sizeof(char));
     struct Slice vectors = MakeSlice(rows*32);
     struct Slice entropy = MakeSlice(rows);
-    for (int i = 0; i < rows; i++) {
-        labels[i] = 0;
-    }
     struct Data data = {
         .width = width,
         .rows = rows,
@@ -267,12 +262,11 @@ void softmax(struct Slice x) {
     }
 }
 
-struct Slice SelfEntropy(struct Slice q, struct Slice k, struct Slice v, struct Slice vectors) {
+void SelfEntropy(struct Data *data, struct Slice q, struct Slice k, struct Slice v) {
     const int cols = q.cols;
     const int rows = q.rows;
     struct Slice entropies = MakeSlice(cols);
     struct Slice values = MakeSlice(rows);
-    struct Slice e = MakeSlice(rows);
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < rows; j++) {
             values.a[j] = dot(Slice(q, i*cols, (i+1)*cols),
@@ -282,7 +276,7 @@ struct Slice SelfEntropy(struct Slice q, struct Slice k, struct Slice v, struct 
 
         for (int j = 0; j < cols; j++) {
             entropies.a[j] = dotT(values, v.a, j, cols);
-            vectors.a[i*cols + j] = entropies.a[j];
+            data->vectors.a[i*cols + j] = entropies.a[j];
         }
         softmax(entropies);
 
@@ -291,11 +285,10 @@ struct Slice SelfEntropy(struct Slice q, struct Slice k, struct Slice v, struct 
         for (int j = 0; j < entropies.size; j++) {
             entropy += entropies.a[j] * log(entropies.a[j]);
         }
-        e.a[i] = -entropy;
+        data->entropy.a[i] = -entropy;
     }
     FreeSlice(entropies);
     FreeSlice(values);
-    return e;
 }
 
 struct Slice Transform(struct Data *data, struct Slice *t) {
@@ -320,23 +313,15 @@ double rainbow(struct Set *set, struct Data *data, double *loss) {
     struct Slice v = Transform(data, &(set->T[2]));
     const int cols = q.cols;
     const int rows = q.rows;
-    struct Slice vectors = MakeMatrix(cols, rows);
-    struct Slice e = SelfEntropy(q, k, v, vectors);
+    SelfEntropy(data, q, k, v);
     FreeSlice(q);
     FreeSlice(k);
     FreeSlice(v);
-    Within(e, 100);
-    Within(vectors, e.size*cols);
+    Within(data->entropy, 100);
     double sum = 0;
-    for (int i = 0; i < e.size; i++) {
-        data->entropy.a[i] = e.a[i];
-        for (int j = 0; j < cols; j++) {
-            data->vectors.a[i*cols + j] = vectors.a[i*cols + j];
-        }
-        sum += e.a[i];
+    for (int i = 0; i < data->entropy.size; i++) {
+        sum += data->entropy.a[i];
     }
-    FreeSlice(e);
-    FreeSlice(vectors);
     *loss = sum;
     return sum;
 }
@@ -427,7 +412,7 @@ int main(int argc, char *argv[]) {
             fclose(f);
             return 1;
         }
-        uint8_t *buf = malloc(fsize);
+        uint8_t *buf = calloc(fsize, sizeof(uint8_t));
         result = fread(buf, fsize, 1, f);
         if (result == EOF) {
             printf("Error reading from file!\n");
@@ -652,10 +637,8 @@ int main(int argc, char *argv[]) {
     protoSet.epoch = epochs;
     protoSet.n_weights = 3;
     protoSet.weights = weights;
-    void *buf;
-    unsigned len;
-    len = proto_tf64__set__get_packed_size(&protoSet);
-    buf = malloc(len);
+    unsigned len = proto_tf64__set__get_packed_size(&protoSet);
+    void *buf = calloc(len, sizeof(uint8_t));
     proto_tf64__set__pack(&protoSet, buf);
     FILE *output = fopen("weights.bin", "w");
     if (fp == NULL) {
