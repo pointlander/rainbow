@@ -267,11 +267,12 @@ void softmax(struct Slice x) {
     }
 }
 
-void SelfEntropy(struct Slice q, struct Slice k, struct Slice v, struct Slice e, struct Slice vectors) {
+struct Slice SelfEntropy(struct Slice q, struct Slice k, struct Slice v, struct Slice vectors) {
     const int cols = q.cols;
     const int rows = q.rows;
     struct Slice entropies = MakeSlice(cols);
     struct Slice values = MakeSlice(rows);
+    struct Slice e = MakeSlice(rows);
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < rows; j++) {
             values.a[j] = dot(Slice(q, i*cols, (i+1)*cols),
@@ -294,6 +295,7 @@ void SelfEntropy(struct Slice q, struct Slice k, struct Slice v, struct Slice e,
     }
     FreeSlice(entropies);
     FreeSlice(values);
+    return e;
 }
 
 struct Slice Transform(struct Data *data, struct Slice *t) {
@@ -318,9 +320,8 @@ double rainbow(struct Set *set, struct Data *data, double *loss) {
     struct Slice v = Transform(data, &(set->T[2]));
     const int cols = q.cols;
     const int rows = q.rows;
-    struct Slice e = MakeSlice(rows);
     struct Slice vectors = MakeMatrix(cols, rows);
-    SelfEntropy(q, k, v, e, vectors);
+    struct Slice e = SelfEntropy(q, k, v, vectors);
     FreeSlice(q);
     FreeSlice(k);
     FreeSlice(v);
