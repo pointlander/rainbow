@@ -262,20 +262,38 @@ void softmax(struct Slice x) {
     }
 }
 
-void SelfEntropy(struct Data *data, struct Slice q, struct Slice k, struct Slice v) {
-    const int cols = q.cols;
-    const int rows = q.rows;
+void SelfEntropy(struct Data *data, struct Set *set) {
+    struct Slice inputs[3] = {
+        MakeMatrix(set->T[0].rows, data->rows),
+        MakeMatrix(set->T[1].rows, data->rows),
+        MakeMatrix(set->T[2].rows, data->rows)
+    };
+    for (int x = 0; x < 3; x++) {
+        const int width = data->width;
+        int index = 0;
+        for (int i = 0; i < data->rows; i++) {
+            const int rows = set->T[x].rows;
+            for (int j = 0; j < rows; j++) {
+                inputs[x].a[index] = dot(Slice(set->T[x], j*width, (j+1)*width),
+                    Slice(data->images, i*width, (i+1)*width));
+                index++;
+            }
+        }
+    }
+
+    const int cols = inputs[0].cols;
+    const int rows = inputs[0].rows;
     struct Slice entropies = MakeSlice(cols);
     struct Slice values = MakeSlice(rows);
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < rows; j++) {
-            values.a[j] = dot(Slice(q, i*cols, (i+1)*cols),
-                Slice(k, j*cols, (j+1)*cols));
+            values.a[j] = dot(Slice(inputs[0], i*cols, (i+1)*cols),
+                Slice(inputs[1], j*cols, (j+1)*cols));
         }
         softmax(values);
 
         for (int j = 0; j < cols; j++) {
-            entropies.a[j] = dotT(values, v.a, j, cols);
+            entropies.a[j] = dotT(values, inputs[2].a, j, cols);
             data->vectors.a[i*cols + j] = entropies.a[j];
         }
         softmax(entropies);
@@ -289,34 +307,14 @@ void SelfEntropy(struct Data *data, struct Slice q, struct Slice k, struct Slice
     }
     FreeSlice(entropies);
     FreeSlice(values);
-}
-
-struct Slice Transform(struct Data *data, struct Slice *t) {
-    const int rows = t->rows;
-    struct Slice images = MakeMatrix(rows, data->rows);
-    const int width = data->width;
-    int index = 0;
-    for (int i = 0; i < data->rows; i++) {
-        for (int j = 0; j < rows; j++) {
-            images.a[index] = dot(Slice(*t, j*width, (j+1)*width),
-                Slice(data->images, i*width, (i+1)*width));
-            index++;
-        }
-    }
-    return images;
+    FreeSlice(inputs[0]);
+    FreeSlice(inputs[1]);
+    FreeSlice(inputs[2]);
 }
 
 extern double __enzyme_autodiff(void*, struct Set*, struct Set*, struct Data*, struct Data*, double*, double*);
 double rainbow(struct Set *set, struct Data *data, double *loss) {
-    struct Slice q = Transform(data, &(set->T[0]));
-    struct Slice k = Transform(data, &(set->T[1]));
-    struct Slice v = Transform(data, &(set->T[2]));
-    const int cols = q.cols;
-    const int rows = q.rows;
-    SelfEntropy(data, q, k, v);
-    FreeSlice(q);
-    FreeSlice(k);
-    FreeSlice(v);
+    SelfEntropy(data, set);
     Within(data->entropy, 100);
     double sum = 0;
     for (int i = 0; i < data->entropy.size; i++) {
