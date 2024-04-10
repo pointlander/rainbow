@@ -385,6 +385,151 @@ void handler(int sig) {
     exit(0);
 }
 
+void mnistInference(struct Set weights) {
+    struct Data data = NewData(SIZE);
+    for (int i = 0; i < 16; i++) {
+        printf("calculating self entropy\n");
+        struct Data cp = NewZeroData(SIZE, 100);
+        Within(cp.images, 99*SIZE + SIZE);
+        Within(cp.entropy, 100);
+        for (int j = 0; j < data.rows; j += 100) {
+            for (int k = 0; k < 100; k++) {
+                for (int l = 0; l < SIZE; l++) {
+                    cp.images.a[k*SIZE + l] = data.images.a[(k+j)*SIZE + l];
+                }
+                cp.labels[k] = data.labels[k + j];
+                cp.entropy.a[k] = data.entropy.a[k + j];
+            }
+            double loss = 0;
+            rainbow(&weights, &cp, &loss);
+            for (int k = 0; k < 100; k++) {
+                for (int l = 0; l < SIZE; l++) {
+                    data.images.a[(k+j)*SIZE + l] = cp.images.a[k*SIZE + l];
+                }
+                data.labels[k + j] = cp.labels[k];
+                data.entropy.a[k + j] = cp.entropy.a[k];
+            }
+        }
+        FreeData(cp);
+        if (IsSorted(data)) {
+            printf("is sorted\n");
+            printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
+            break;
+        }
+        printf("sorting\n");
+        SortData(data);
+        printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
+    }
+
+    int correct = 0;
+    for (int i = 0; i < (data.rows-1); i++) {
+        char current = data.labels[i];
+        if (current > 9) {
+            current -= 10;
+            char next = data.labels[i+1];
+            if (next > 9) {
+                next -= 10;
+            }
+            if (current == next) {
+                correct++;
+            }
+        }
+    }
+    printf("correct %d %f\n", correct, ((double)correct)/((double)10000));
+    FreeData(data);
+}
+
+int learn(struct Data data, struct Set set, int epochs, int depth, double *cost) {
+    const int numCPU = sysconf(_SC_NPROCESSORS_ONLN);
+    const int batchSize = (data.rows/100)/numCPU;
+    const int spares = (data.rows/100)%numCPU;
+    printf("%d %d %d\n", numCPU, batchSize, spares);
+    for (int e = 0; e < epochs; e++) {
+        struct Set d = NewSet(SIZE, 32);
+        *cost = 0;
+        for (int i = 0; i < depth; i++) {
+            printf("calculating self entropy %d\n", i);
+            Within(data.images, (data.rows - 1)*SIZE + SIZE);
+            Within(data.vectors, data.rows*32);
+            Within(data.entropy, data.rows);
+            struct Thread threads[numCPU];
+            int j = 0;
+            int cpu = 0;
+            while (j < (numCPU*batchSize + spares)) {
+                threads[cpu].offset = j;
+                threads[cpu].batchSize = batchSize;
+                if (cpu == 0) {
+                    threads[cpu].batchSize += spares;
+                }
+                threads[cpu].data = data;
+                threads[cpu].set = set;
+                threads[cpu].cost = 0;
+                pthread_create(&threads[cpu].thread, 0, Rainbow, (void*)&threads[cpu]);
+                j += threads[cpu].batchSize;
+                cpu++;
+            }
+            for (int j = 0; j < numCPU; j++) {
+                pthread_join(threads[j].thread, NULL);
+                for (int l = 0; l < 3; l++) {
+                    for (int k = 0; k < d.T[l].size; k++) {
+                        d.T[l].a[k] += threads[j].d.T[l].a[k];
+                    }
+                }
+                *cost += threads[j].cost;
+            }
+            if (IsSorted(data)) {
+                printf("is sorted\n");
+                break;
+            }
+            printf("sorting\n");
+            SortData(data);
+            printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
+        }
+        double norm = 0;
+        for (int s = 0; s < 3; s++) {
+            Within(d.T[s], d.T[s].size);
+            for (int i = 0; i < d.T[s].size; i++) {
+                norm += d.T[s].a[i] * d.T[s].a[i];
+            }
+        }
+        norm = sqrt(norm);
+        double scaling = 1;
+        if (norm > 1) {
+            scaling /= norm;
+        }
+        double b1 = Pow(B1, e);
+        double b2 = Pow(B2, e);
+        for (int s = 0; s < 3; s++) {
+            Within(d.T[s], d.T[s].size);
+            Within(set.M[s], d.T[s].size);
+            Within(set.V[s], d.T[s].size);
+            for (int i = 0; i < d.T[s].size; i++) {
+                double g = d.T[s].a[i] * scaling;
+                double mm = B1*set.M[s].a[i] + (1-B1)*g;
+                double vv = B2*set.V[s].a[i] + (1-B2)*g*g;
+                set.M[s].a[i] = mm;
+                set.V[s].a[i] = vv;
+                double mhat = mm / (1 - b1);
+                double vhat = vv / (1 - b2);
+                if (vhat < 0) {
+                    vhat = 0;
+                }
+                set.T[s].a[i] -= Eta * mhat / (sqrt(vhat) + 1e-8);
+            }
+        }
+        FreeSet(d);
+        printf("cost %.32f, %d\n", *cost, e);
+        int result = fprintf(fp, "%d %.32f\n", e, *cost);
+        if (result == EOF) {
+            printf("Error writing to file!\n");
+            fclose(fp);
+            return 1;
+        }
+    }
+    printf("\n");
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     srand(1);
     signal(SIGINT, handler);
@@ -440,59 +585,8 @@ int main(int argc, char *argv[]) {
             weights.V[i].rows = 32;
             weights.V[i].a = set->weights[i]->states + set->weights[i]->n_values;
         }
-        struct Data data = NewData(SIZE);
+        mnistInference(weights);
 
-        for (int i = 0; i < 16; i++) {
-            printf("calculating self entropy\n");
-            struct Data cp = NewZeroData(SIZE, 100);
-            Within(cp.images, 99*SIZE + SIZE);
-            Within(cp.entropy, 100);
-            for (int j = 0; j < data.rows; j += 100) {
-                for (int k = 0; k < 100; k++) {
-                    for (int l = 0; l < SIZE; l++) {
-                        cp.images.a[k*SIZE + l] = data.images.a[(k+j)*SIZE + l];
-                    }
-                    cp.labels[k] = data.labels[k + j];
-                    cp.entropy.a[k] = data.entropy.a[k + j];
-                }
-                double loss = 0;
-                rainbow(&weights, &cp, &loss);
-                for (int k = 0; k < 100; k++) {
-                    for (int l = 0; l < SIZE; l++) {
-                        data.images.a[(k+j)*SIZE + l] = cp.images.a[k*SIZE + l];
-                    }
-                    data.labels[k + j] = cp.labels[k];
-                    data.entropy.a[k + j] = cp.entropy.a[k];
-                }
-            }
-            FreeData(cp);
-            if (IsSorted(data)) {
-                printf("is sorted\n");
-                printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
-                break;
-            }
-            printf("sorting\n");
-            SortData(data);
-            printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
-        }
-
-        int correct = 0;
-        for (int i = 0; i < (data.rows-1); i++) {
-            char current = data.labels[i];
-            if (current > 9) {
-                current -= 10;
-                char next = data.labels[i+1];
-                if (next > 9) {
-                    next -= 10;
-                }
-                if (current == next) {
-                    correct++;
-                }
-            }
-        }
-        printf("correct %d %f\n", correct, ((double)correct)/((double)10000));
-
-        FreeData(data);
         proto_tf64__set__free_unpacked(set, NULL);
         free(buf);
         printf("\n");
@@ -510,11 +604,7 @@ int main(int argc, char *argv[]) {
         fclose(fp);
         return 1;
     }
-    const int numCPU = sysconf(_SC_NPROCESSORS_ONLN);
     struct Data data = NewData(SIZE);
-    const int batchSize = (data.rows/100)/numCPU;
-    const int spares = (data.rows/100)%numCPU;
-    printf("%d %d %d\n", numCPU, batchSize, spares);
     struct Set set = NewSet(SIZE, 32);
     double factor = sqrt(2.0 / ((double)SIZE));
     for (int s = 0; s < 3; s++) {
@@ -522,91 +612,14 @@ int main(int argc, char *argv[]) {
             set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
         }
     }
-    double cost = 0;
     const int epochs = 8;
-    for (int e = 0; e < epochs; e++) {
-        struct Set d = NewSet(SIZE, 32);
-        cost = 0;
-        for (int i = 0; i < 3; i++) {
-            printf("calculating self entropy %d\n", i);
-            Within(data.images, (data.rows - 1)*SIZE + SIZE);
-            Within(data.vectors, data.rows*32);
-            Within(data.entropy, data.rows);
-            struct Thread threads[numCPU];
-            int j = 0;
-            int cpu = 0;
-            while (j < (numCPU*batchSize + spares)) {
-                threads[cpu].offset = j;
-                threads[cpu].batchSize = batchSize;
-                if (cpu == 0) {
-                    threads[cpu].batchSize += spares;
-                }
-                threads[cpu].data = data;
-                threads[cpu].set = set;
-                threads[cpu].cost = 0;
-                pthread_create(&threads[cpu].thread, 0, Rainbow, (void*)&threads[cpu]);
-                j += threads[cpu].batchSize;
-                cpu++;
-            }
-            for (int j = 0; j < numCPU; j++) {
-                pthread_join(threads[j].thread, NULL);
-                for (int l = 0; l < 3; l++) {
-                    for (int k = 0; k < d.T[l].size; k++) {
-                        d.T[l].a[k] += threads[j].d.T[l].a[k];
-                    }
-                }
-                cost += threads[j].cost;
-            }
-            if (IsSorted(data)) {
-                printf("is sorted\n");
-                break;
-            }
-            printf("sorting\n");
-            SortData(data);
-            printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
-        }
-        double norm = 0;
-        for (int s = 0; s < 3; s++) {
-            Within(d.T[s], d.T[s].size);
-            for (int i = 0; i < d.T[s].size; i++) {
-                norm += d.T[s].a[i] * d.T[s].a[i];
-            }
-        }
-        norm = sqrt(norm);
-        double scaling = 1;
-        if (norm > 1) {
-            scaling /= norm;
-        }
-        double b1 = Pow(B1, e);
-        double b2 = Pow(B2, e);
-        for (int s = 0; s < 3; s++) {
-            Within(d.T[s], d.T[s].size);
-            Within(set.M[s], d.T[s].size);
-            Within(set.V[s], d.T[s].size);
-            for (int i = 0; i < d.T[s].size; i++) {
-                double g = d.T[s].a[i] * scaling;
-                double mm = B1*set.M[s].a[i] + (1-B1)*g;
-                double vv = B2*set.V[s].a[i] + (1-B2)*g*g;
-                set.M[s].a[i] = mm;
-                set.V[s].a[i] = vv;
-                double mhat = mm / (1 - b1);
-                double vhat = vv / (1 - b2);
-                if (vhat < 0) {
-                    vhat = 0;
-                }
-                set.T[s].a[i] -= Eta * mhat / (sqrt(vhat) + 1e-8);
-            }
-        }
-        FreeSet(d);
-        printf("cost %.32f, %d\n", cost, e);
-        int result = fprintf(fp, "%d %.32f\n", e, cost);
-        if (result == EOF) {
-            printf("Error writing to file!\n");
-            fclose(fp);
-            return 1;
-        }
+    const int depth = 3;
+    double cost = 0;
+    result = learn(data, set, epochs, depth, &cost);
+    if (result > 0) {
+        return result;
     }
-    printf("\n");
+    FreeData(data);
     struct ProtoTf64__Set protoSet = PROTO_TF64__SET__INIT;
     struct ProtoTf64__Weights *weights[3];
     for (int i = 0; i < 3; i++) {
@@ -651,6 +664,5 @@ int main(int argc, char *argv[]) {
     }
     fclose(output);
     fclose(fp);
-    FreeData(data);
     FreeSet(set);
 }
