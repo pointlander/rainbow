@@ -18,13 +18,29 @@ const double Eta = .1;
 struct Slice {
     double* a;
     int size;
+    int cols;
+    int rows;
 };
 
 struct Slice MakeSlice(int size) {
     double *a = (double *)calloc(size, sizeof(double));
     struct Slice x = {
         .a = a,
-        .size = size
+        .size = size,
+        .cols = 1,
+        .rows = size,
+    };
+    return x;
+}
+
+struct Slice MakeMatrix(int cols, int rows) {
+    const int size = cols * rows;
+    double *a = (double *)calloc(size, sizeof(double));
+    struct Slice x = {
+        .a = a,
+        .size = size,
+        .cols = cols,
+        .rows = rows
     };
     return x;
 }
@@ -47,7 +63,9 @@ struct Slice Slice(struct Slice a, int begin, int end) {
     }
     struct Slice x = {
         .a = a.a+begin,
-        .size = end - begin
+        .size = end - begin,
+        .cols = 1,
+        .rows = end - begin
     };
     return x;
 }
@@ -58,12 +76,12 @@ struct Set {
     struct Slice V[3];
 };
 
-struct Set NewSet(int size) {
+struct Set NewSet(int cols, int rows) {
     struct Set set;
     for (int i = 0; i < 3; i++) {
-        set.T[i] = MakeSlice(size);
-        set.M[i] = MakeSlice(size);
-        set.V[i] = MakeSlice(size);
+        set.T[i] = MakeMatrix(cols, rows);
+        set.M[i] = MakeMatrix(cols, rows);
+        set.V[i] = MakeMatrix(cols, rows);
     }
     return set;
 }
@@ -249,20 +267,21 @@ void softmax(struct Slice x) {
     }
 }
 
-void SelfEntropy(struct Slice q, struct Slice k, struct Slice v, int width, struct Slice e, struct Slice vectors) {
-    const int cols = width;
-    const int rows = q.size/width;
+struct Slice SelfEntropy(struct Slice q, struct Slice k, struct Slice v, struct Slice vectors) {
+    const int cols = q.cols;
+    const int rows = q.rows;
     struct Slice entropies = MakeSlice(cols);
     struct Slice values = MakeSlice(rows);
+    struct Slice e = MakeSlice(rows);
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < rows; j++) {
-            values.a[j] = dot(Slice(q, i*width, (i+1)*width),
-                Slice(k, j*width, (j+1)*width));
+            values.a[j] = dot(Slice(q, i*cols, (i+1)*cols),
+                Slice(k, j*cols, (j+1)*cols));
         }
         softmax(values);
 
         for (int j = 0; j < cols; j++) {
-            entropies.a[j] = dotT(values, v.a, j, width);
+            entropies.a[j] = dotT(values, v.a, j, cols);
             vectors.a[i*cols + j] = entropies.a[j];
         }
         softmax(entropies);
@@ -276,11 +295,12 @@ void SelfEntropy(struct Slice q, struct Slice k, struct Slice v, int width, stru
     }
     FreeSlice(entropies);
     FreeSlice(values);
+    return e;
 }
 
 struct Slice Transform(struct Data *data, struct Slice *t) {
-    const int rows = t->size/data->width;
-    struct Slice images = MakeSlice(data->rows*rows);
+    const int rows = t->rows;
+    struct Slice images = MakeMatrix(rows, data->rows);
     const int width = data->width;
     int index = 0;
     for (int i = 0; i < data->rows; i++) {
@@ -298,11 +318,10 @@ double rainbow(struct Set *set, struct Data *data, double *loss) {
     struct Slice q = Transform(data, &(set->T[0]));
     struct Slice k = Transform(data, &(set->T[1]));
     struct Slice v = Transform(data, &(set->T[2]));
-    const int cols = (set->T[0].size)/data->width;
-    const int rows = q.size/cols;
-    struct Slice e = MakeSlice(rows);
-    struct Slice vectors = MakeSlice(cols*rows);
-    SelfEntropy(q, k, v, cols, e, vectors);
+    const int cols = q.cols;
+    const int rows = q.rows;
+    struct Slice vectors = MakeMatrix(cols, rows);
+    struct Slice e = SelfEntropy(q, k, v, vectors);
     FreeSlice(q);
     FreeSlice(k);
     FreeSlice(v);
@@ -338,7 +357,7 @@ struct Thread {
 
 void *Rainbow(void *ptr) {
     struct Thread *t = (struct Thread*)ptr;
-    struct Set d = NewSet(SIZE*32);
+    struct Set d = NewSet(SIZE, 32);
     t->d = d; 
     struct Data cp = NewZeroData(SIZE, 100);
     Within(cp.images, 99*SIZE + SIZE);
@@ -426,10 +445,16 @@ int main(int argc, char *argv[]) {
         struct Set weights;
         for (int i = 0; i < 3; i++) {
             weights.T[i].size = set->weights[i]->n_values;
+            weights.T[i].cols = SIZE;
+            weights.T[i].rows = 32;
             weights.T[i].a = set->weights[i]->values;
             weights.M[i].size = set->weights[i]->n_values;
+            weights.M[i].cols = SIZE;
+            weights.M[i].rows = 32;
             weights.M[i].a = set->weights[i]->states;
             weights.V[i].size = set->weights[i]->n_values;
+            weights.V[i].cols = SIZE;
+            weights.V[i].rows = 32;
             weights.V[i].a = set->weights[i]->states + set->weights[i]->n_values;
         }
         struct Data data = NewData(SIZE);
@@ -507,7 +532,7 @@ int main(int argc, char *argv[]) {
     const int batchSize = (data.rows/100)/numCPU;
     const int spares = (data.rows/100)%numCPU;
     printf("%d %d %d\n", numCPU, batchSize, spares);
-    struct Set set = NewSet(SIZE*32);
+    struct Set set = NewSet(SIZE, 32);
     double factor = sqrt(2.0 / ((double)SIZE));
     for (int s = 0; s < 3; s++) {
         for (int i = 0; i < set.T[s].size; i++) {
@@ -515,9 +540,9 @@ int main(int argc, char *argv[]) {
         }
     }
     double cost = 0;
-    const int epochs = 256;
+    const int epochs = 8;
     for (int e = 0; e < epochs; e++) {
-        struct Set d = NewSet(SIZE*32);
+        struct Set d = NewSet(SIZE, 32);
         cost = 0;
         for (int i = 0; i < 3; i++) {
             printf("calculating self entropy %d\n", i);
