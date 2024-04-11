@@ -678,7 +678,7 @@ int main(int argc, char *argv[]) {
         weight->n_shape = 2;
         weight->shape = calloc(2, sizeof(int64_t));
         weight->shape[0] = data.width;
-        weight->shape[1] = 32;
+        weight->shape[1] = set.T[i].rows;
         weight->n_values = set.T[i].size;
         weight->values = set.T[i].a;
         weight->n_states = set.M[i].size + set.V[i].size;
