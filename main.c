@@ -106,6 +106,8 @@ struct Slice Slice(struct Slice a, int begin, int end) {
 }
 
 struct Set {
+    int cols;
+    int rows;
     struct Slice T[3];
     struct Slice M[3];
     struct Slice V[3];
@@ -113,6 +115,8 @@ struct Set {
 
 struct Set NewSet(int cols, int rows) {
     struct Set set;
+    set.cols = cols;
+    set.rows = rows;
     for (int i = 0; i < 3; i++) {
         set.T[i] = MakeMatrix(cols, rows);
         set.M[i] = MakeMatrix(cols, rows);
@@ -369,42 +373,43 @@ struct Thread {
     pthread_t thread;
     struct Data data;
     struct Set set;
-    struct Set d;
+    struct Set d_set;
     double cost;
 };
 
 void *Rainbow(void *ptr) {
     struct Thread *t = (struct Thread*)ptr;
-    struct Set d = NewSet(SIZE, 32);
-    t->d = d; 
-    struct Data cp = NewZeroData(SIZE, 100);
-    Within(cp.images, 99*SIZE + SIZE);
-    Within(cp.vectors, 100*32);
+    const int width = t->data.width;
+    const int cols = t->set.cols;
+    const int rows = t->set.rows;
+    struct Data cp = NewZeroData(width, 100);
+    Within(cp.images, 99*width + width);
+    Within(cp.vectors, 100*t->set.rows);
     Within(cp.entropy, 100);
     for (int j = t->offset; j < (t->offset + t->batchSize); j++) {
         for (int k = 0; k < 100; k++) {
-            for (int l = 0; l < SIZE; l++) {
-                cp.images.a[k*SIZE + l] = t->data.images.a[(k+j*100)*SIZE + l];
+            for (int l = 0; l < width; l++) {
+                cp.images.a[k*width + l] = t->data.images.a[(k+j*100)*width + l];
             }
             cp.labels[k] = t->data.labels[k + j*100];
-            for (int l = 0; l < 32; l++) {
-                cp.vectors.a[k*32 + l] = t->data.vectors.a[(k+j*100)*32 + l];
+            for (int l = 0; l < rows; l++) {
+                cp.vectors.a[k*rows + l] = t->data.vectors.a[(k+j*100)*rows + l];
             }
             cp.entropy.a[k] = t->data.entropy.a[k + j*100];
         }
-        struct Data d_data = NewZeroData(SIZE, 100);
+        struct Data d_data = NewZeroData(width, 100);
         double loss = 0;
         double dloss = 0;
-        __enzyme_autodiff((void*) rainbow, &(t->set), &d, &cp, &d_data, &loss, &dloss);
+        __enzyme_autodiff((void*) rainbow, &(t->set), &(t->d_set), &cp, &d_data, &loss, &dloss);
         t->cost += loss;
         FreeData(d_data);
         for (int k = 0; k < 100; k++) {
-            for (int l = 0; l < SIZE; l++) {
-                t->data.images.a[(k+j*100)*SIZE + l] = cp.images.a[k*SIZE + l];
+            for (int l = 0; l < width; l++) {
+                t->data.images.a[(k+j*100)*width + l] = cp.images.a[k*width + l];
             }
             t->data.labels[k + j*100] = cp.labels[k];
-            for (int l = 0; l < 32; l++) {
-                t->data.vectors.a[(k+j*100)*32 + l] = cp.vectors.a[k*32 + l];
+            for (int l = 0; l < rows; l++) {
+                t->data.vectors.a[(k+j*100)*rows + l] = cp.vectors.a[k*rows + l];
             }
             t->data.entropy.a[k + j*100] = cp.entropy.a[k];
         }
@@ -422,26 +427,33 @@ void handler(int sig) {
 
 void mnistInference(struct Set weights) {
     struct Data data = NewData(SIZE);
+    const int rows = weights.rows;
     for (int i = 0; i < 16; i++) {
         printf("calculating self entropy\n");
-        struct Data cp = NewZeroData(SIZE, 100);
-        Within(cp.images, 99*SIZE + SIZE);
+        struct Data cp = NewZeroData(data.width, 100);
+        Within(cp.images, 99*data.width + data.width);
         Within(cp.entropy, 100);
         for (int j = 0; j < data.rows; j += 100) {
             for (int k = 0; k < 100; k++) {
-                for (int l = 0; l < SIZE; l++) {
-                    cp.images.a[k*SIZE + l] = data.images.a[(k+j)*SIZE + l];
+                for (int l = 0; l < data.width; l++) {
+                    cp.images.a[k*data.width + l] = data.images.a[(k+j)*data.width + l];
                 }
                 cp.labels[k] = data.labels[k + j];
+                for (int l = 0; l < rows; l++) {
+                    cp.vectors.a[k*rows + l] = data.vectors.a[(k+j*100)*rows + l];
+                }
                 cp.entropy.a[k] = data.entropy.a[k + j];
             }
             double loss = 0;
             rainbow(&weights, &cp, &loss);
             for (int k = 0; k < 100; k++) {
-                for (int l = 0; l < SIZE; l++) {
-                    data.images.a[(k+j)*SIZE + l] = cp.images.a[k*SIZE + l];
+                for (int l = 0; l < data.width; l++) {
+                    data.images.a[(k+j)*data.width + l] = cp.images.a[k*data.width + l];
                 }
                 data.labels[k + j] = cp.labels[k];
+                for (int l = 0; l < rows; l++) {
+                    data.vectors.a[(k+j*100)*rows + l] = cp.vectors.a[k*rows + l];
+                }
                 data.entropy.a[k + j] = cp.entropy.a[k];
             }
         }
@@ -480,12 +492,12 @@ int learn(struct Data data, struct Set set, int epochs, int depth, double *cost)
     const int spares = (data.rows/100)%numCPU;
     printf("%d %d %d\n", numCPU, batchSize, spares);
     for (int e = 0; e < epochs; e++) {
-        struct Set d = NewSet(SIZE, 32);
+        struct Set d = NewSet(set.cols, set.rows);
         *cost = 0;
         for (int i = 0; i < depth; i++) {
             printf("calculating self entropy %d\n", i);
-            Within(data.images, (data.rows - 1)*SIZE + SIZE);
-            Within(data.vectors, data.rows*32);
+            Within(data.images, (data.rows - 1)*data.width + data.width);
+            Within(data.vectors, data.rows*d.rows);
             Within(data.entropy, data.rows);
             struct Thread threads[numCPU];
             int j = 0;
@@ -498,6 +510,7 @@ int learn(struct Data data, struct Set set, int epochs, int depth, double *cost)
                 }
                 threads[cpu].data = data;
                 threads[cpu].set = set;
+                threads[cpu].d_set = NewSet(set.cols, set.rows);
                 threads[cpu].cost = 0;
                 pthread_create(&threads[cpu].thread, 0, Rainbow, (void*)&threads[cpu]);
                 j += threads[cpu].batchSize;
@@ -507,9 +520,10 @@ int learn(struct Data data, struct Set set, int epochs, int depth, double *cost)
                 pthread_join(threads[j].thread, NULL);
                 for (int l = 0; l < 3; l++) {
                     for (int k = 0; k < d.T[l].size; k++) {
-                        d.T[l].a[k] += threads[j].d.T[l].a[k];
+                        d.T[l].a[k] += threads[j].d_set.T[l].a[k];
                     }
                 }
+                FreeSet(threads[j].d_set);
                 *cost += threads[j].cost;
             }
             if (IsSorted(data)) {
@@ -641,8 +655,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     struct Data data = NewData(SIZE);
-    struct Set set = NewSet(SIZE, 32);
-    double factor = sqrt(2.0 / ((double)SIZE));
+    struct Set set = NewSet(data.width, 32);
+    double factor = sqrt(2.0 / ((double)data.width));
     for (int s = 0; s < 3; s++) {
         for (int i = 0; i < set.T[s].size; i++) {
             set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
@@ -663,7 +677,7 @@ int main(int argc, char *argv[]) {
         *weight = (struct ProtoTf64__Weights)PROTO_TF64__WEIGHTS__INIT;
         weight->n_shape = 2;
         weight->shape = calloc(2, sizeof(int64_t));
-        weight->shape[0] = SIZE;
+        weight->shape[0] = data.width;
         weight->shape[1] = 32;
         weight->n_values = set.T[i].size;
         weight->values = set.T[i].a;
