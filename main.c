@@ -106,6 +106,7 @@ struct Slice Slice(struct Slice a, int begin, int end) {
 }
 
 struct Set {
+    double loss;
     int cols;
     int rows;
     struct Slice T[3];
@@ -351,15 +352,15 @@ void SelfEntropy(struct Data *data, struct Set *set) {
     FreeSlice(inputs[2]);
 }
 
-extern double __enzyme_autodiff(void*, struct Set*, struct Set*, struct Data*, struct Data*, double*, double*);
-double rainbow(struct Set *set, struct Data *data, double *loss) {
+extern double __enzyme_autodiff(void*, struct Set*, struct Set*, struct Data*, struct Data*);
+double rainbow(struct Set *set, struct Data *data) {
     SelfEntropy(data, set);
     Within(data->entropy, 100);
     double sum = 0;
     for (int i = 0; i < data->entropy.size; i++) {
         sum += data->entropy.a[i];
     }
-    *loss = sum;
+    set->loss = sum;
     return sum;
 }
 
@@ -398,10 +399,8 @@ void *Rainbow(void *ptr) {
             cp.entropy.a[k] = t->data.entropy.a[k + j*100];
         }
         struct Data d_data = NewZeroData(width, 100);
-        double loss = 0;
-        double dloss = 0;
-        __enzyme_autodiff((void*) rainbow, &(t->set), &(t->d_set), &cp, &d_data, &loss, &dloss);
-        t->cost += loss;
+        __enzyme_autodiff((void*) rainbow, &(t->set), &(t->d_set), &cp, &d_data);
+        t->cost += t->set.loss;
         FreeData(d_data);
         for (int k = 0; k < 100; k++) {
             for (int l = 0; l < width; l++) {
@@ -421,7 +420,9 @@ void *Rainbow(void *ptr) {
 FILE *fp = NULL;
 
 void handler(int sig) {
-    fclose(fp);
+    if (fp != NULL) {
+        fclose(fp);
+    }
     exit(0);
 }
 
@@ -444,8 +445,7 @@ void mnistInference(struct Set weights) {
                 }
                 cp.entropy.a[k] = data.entropy.a[k + j];
             }
-            double loss = 0;
-            rainbow(&weights, &cp, &loss);
+            rainbow(&weights, &cp);
             for (int k = 0; k < 100; k++) {
                 for (int l = 0; l < data.width; l++) {
                     data.images.a[(k+j)*data.width + l] = cp.images.a[k*data.width + l];
