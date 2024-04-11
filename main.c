@@ -15,6 +15,41 @@ const double B2 = 0.89;
 // Eta is the learning rate
 const double Eta = .1;
 
+char *Bible;
+void load_Bible() {
+    FILE *f = fopen("data/10.txt.utf-8", "rb");
+    if (f == NULL) {
+        printf("Error opening file!\n");
+        exit(1);
+    }
+    int result = fseek(f, 0, SEEK_END);
+    if (result == EOF) {
+        printf("Error seeking in file!\n");
+        fclose(f);
+        exit(1);
+    }
+    long fsize = ftell(f);
+    result = fseek(f, 0, SEEK_SET);
+    if (result == EOF) {
+        printf("Error seeking in file!\n");
+        fclose(f);
+        exit(1);
+    }
+    Bible = calloc(fsize, sizeof(uint8_t));
+    result = fread(Bible, fsize, 1, f);
+    if (result == EOF) {
+        printf("Error reading from file!\n");
+        fclose(f);
+        exit(1);
+    }
+    result = fclose(f);
+    if (result == EOF) {
+        printf("Error closing file!\n");
+        fclose(f);
+        exit(1);
+    }
+}
+
 struct Slice {
     double* a;
     int size;
@@ -534,6 +569,7 @@ int main(int argc, char *argv[]) {
     srand(1);
     signal(SIGINT, handler);
     load_mnist();
+    load_Bible();
 
     if (argc > 1) {
         printf("weights %s\n", argv[1]);
