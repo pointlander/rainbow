@@ -623,16 +623,16 @@ int main(int argc, char *argv[]) {
         struct Set weights;
         for (int i = 0; i < 3; i++) {
             weights.T[i].size = set->weights[i]->n_values;
-            weights.T[i].cols = SIZE;
-            weights.T[i].rows = 32;
+            weights.T[i].cols = set->weights[i]->shape[0];
+            weights.T[i].rows = set->weights[i]->shape[1];
             weights.T[i].a = set->weights[i]->values;
             weights.M[i].size = set->weights[i]->n_values;
-            weights.M[i].cols = SIZE;
-            weights.M[i].rows = 32;
+            weights.M[i].cols = set->weights[i]->shape[0];
+            weights.M[i].rows = set->weights[i]->shape[1];
             weights.M[i].a = set->weights[i]->states;
             weights.V[i].size = set->weights[i]->n_values;
-            weights.V[i].cols = SIZE;
-            weights.V[i].rows = 32;
+            weights.V[i].cols = set->weights[i]->shape[0];
+            weights.V[i].rows = set->weights[i]->shape[1];
             weights.V[i].a = set->weights[i]->states + set->weights[i]->n_values;
         }
         mnistInference(weights);
