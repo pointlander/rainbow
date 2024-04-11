@@ -259,10 +259,10 @@ void quickSort(struct Data *data, int low, int high) {
     }
 }
 
-void SortData(struct Data *data) {
+int SortData(struct Data *data) {
     data->swaps = 0;
     quickSort(data, 0, data->rows - 1);
-    printf("swaps %d\n", data->swaps);
+    return data->swaps;
 }
 
 int IsSorted(struct Data data) {
@@ -432,10 +432,14 @@ void *Rainbow(void *ptr) {
 }
 
 FILE *fp = NULL;
+FILE *swaps = NULL;
 
 void handler(int sig) {
     if (fp != NULL) {
         fclose(fp);
+    }
+    if (swaps != NULL) {
+        fclose(swaps);
     }
     exit(0);
 }
@@ -508,6 +512,7 @@ int learn(struct Data data, struct Set set, int epochs, int depth, double *cost)
     for (int e = 0; e < epochs; e++) {
         struct Set d = NewSet(set.cols, set.rows);
         *cost = 0;
+        int swap = 0;
         for (int i = 0; i < depth; i++) {
             printf("calculating self entropy %d\n", i);
             Within(data.images, (data.rows - 1)*data.width + data.width);
@@ -545,7 +550,7 @@ int learn(struct Data data, struct Set set, int epochs, int depth, double *cost)
                 break;
             }
             printf("sorting\n");
-            SortData(&data);
+            swap = SortData(&data);
             printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
         }
         double norm = 0;
@@ -586,6 +591,12 @@ int learn(struct Data data, struct Set set, int epochs, int depth, double *cost)
         if (result == EOF) {
             printf("Error writing to file!\n");
             fclose(fp);
+            return 1;
+        }
+        result = fprintf(swaps, "%d %d\n", e, swap);
+        if (result == EOF) {
+            printf("Error writing to swaps file!\n");
+            fclose(swaps);
             return 1;
         }
     }
@@ -668,6 +679,17 @@ int main(int argc, char *argv[]) {
         fclose(fp);
         return 1;
     }
+    swaps = fopen("swaps.txt", "w");
+    if (swaps == NULL) {
+        printf("Error opening swaps file!\n");
+        return 1;
+    }
+    result = fprintf(swaps, "# epoch swaps\n");
+    if (result == EOF) {
+        printf("Error writing to swaps file!\n");
+        fclose(swaps);
+        return 1;
+    }
     struct Data data = NewData(SIZE);
     struct Set set = NewSet(data.width, 32);
     double factor = sqrt(2.0 / ((double)data.width));
@@ -676,7 +698,7 @@ int main(int argc, char *argv[]) {
             set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
         }
     }
-    const int epochs = 8;
+    const int epochs = 256;
     const int depth = 3;
     double cost = 0;
     result = learn(data, set, epochs, depth, &cost);
@@ -728,5 +750,6 @@ int main(int argc, char *argv[]) {
     }
     fclose(output);
     fclose(fp);
+    fclose(swaps);
     FreeSet(set);
 }
