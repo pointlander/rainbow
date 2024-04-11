@@ -141,13 +141,14 @@ struct Data {
     char* labels;
     struct Slice vectors;
     struct Slice entropy;
+    int swaps;
 };
 
 struct Data NewData(int width) {
     int rows = (NUM_TRAIN+NUM_TEST);
     struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)calloc(rows, sizeof(char));
-    struct Slice vectors = MakeSlice(rows*32);
+    struct Slice vectors = MakeMatrix(32, rows);
     struct Slice entropy = MakeSlice(rows);
     struct Data data = {
         .width = width,
@@ -155,7 +156,8 @@ struct Data NewData(int width) {
         .images = images,
         .labels = labels,
         .vectors = vectors,
-        .entropy = entropy
+        .entropy = entropy,
+        .swaps = 0
     };
     int index = 0;
     Within(images, NUM_TRAIN*width);
@@ -189,7 +191,7 @@ struct Data NewData(int width) {
 struct Data NewZeroData(int width, int rows) {
     struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)calloc(rows, sizeof(char));
-    struct Slice vectors = MakeSlice(rows*32);
+    struct Slice vectors = MakeMatrix(32, rows);
     struct Slice entropy = MakeSlice(rows);
     struct Data data = {
         .width = width,
@@ -197,49 +199,59 @@ struct Data NewZeroData(int width, int rows) {
         .images = images,
         .labels = labels,
         .vectors = vectors,
-        .entropy = entropy
+        .entropy = entropy,
+        .swaps = 0
     };
     return data;
 }
 
-void swap(struct Data data, int a, int b) {
-    Within(data.images, a*data.width + data.width);
-    Within(data.images, b*data.width + data.width);
-    for (int k = 0; k < data.width; k++) {
-        double s = data.images.a[a*data.width + k];
-        data.images.a[a*data.width + k] = data.images.a[b*data.width + k];
-        data.images.a[b*data.width + k] = s;
+void swap(struct Data *data, int a, int b) {
+    const int width = data->width;
+    Within(data->images, a*width + width);
+    Within(data->images, b*width + width);
+    for (int k = 0; k < width; k++) {
+        double s = data->images.a[a*width + k];
+        data->images.a[a*width + k] = data->images.a[b*width + k];
+        data->images.a[b*width + k] = s;
     }
-    char c = data.labels[a];
-    data.labels[a] = data.labels[b];
-    data.labels[b] = c;
-    double s = data.entropy.a[a];
-    data.entropy.a[a] = data.entropy.a[b];
-    data.entropy.a[b] = s;
+    const int cols = data->vectors.cols;
+    for (int k = 0; k < cols; k++) {
+        double s = data->vectors.a[a*cols + k];
+        data->vectors.a[a*cols + k] = data->vectors.a[b*cols + k];
+        data->vectors.a[b*cols + k] = s;
+    }
+    char c = data->labels[a];
+    data->labels[a] = data->labels[b];
+    data->labels[b] = c;
+    double s = data->entropy.a[a];
+    data->entropy.a[a] = data->entropy.a[b];
+    data->entropy.a[b] = s;
 }
 
-int partition(struct Data data, int low, int high) {
-    double pivot = data.entropy.a[low];
+int partition(struct Data *data, int low, int high) {
+    double pivot = data->entropy.a[low];
     int i = low;
     int j = high;
 
-    Within(data.entropy, j);
+    Within(data->entropy, j);
     while (i < j) {
-        while (data.entropy.a[i] <= pivot && i <= high - 1) {
+        while (data->entropy.a[i] <= pivot && i <= high - 1) {
             i++;
         }
-        while (data.entropy.a[j] > pivot && j >= low + 1) {
+        while (data->entropy.a[j] > pivot && j >= low + 1) {
             j--;
         }
         if (i < j) {
             swap(data, i, j);
+            data->swaps++;
         }
     }
     swap(data, low, j);
+    data->swaps++;
     return j;
 }
 
-void quickSort(struct Data data, int low, int high) {
+void quickSort(struct Data *data, int low, int high) {
     if (low < high) {
         int partitionIndex = partition(data, low, high);
         quickSort(data, low, partitionIndex - 1);
@@ -247,8 +259,10 @@ void quickSort(struct Data data, int low, int high) {
     }
 }
 
-void SortData(struct Data data) {
-    quickSort(data, 0, data.rows - 1);
+void SortData(struct Data *data) {
+    data->swaps = 0;
+    quickSort(data, 0, data->rows - 1);
+    printf("swaps %d\n", data->swaps);
 }
 
 int IsSorted(struct Data data) {
@@ -464,7 +478,7 @@ void mnistInference(struct Set weights) {
             break;
         }
         printf("sorting\n");
-        SortData(data);
+        SortData(&data);
         printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
     }
 
@@ -531,7 +545,7 @@ int learn(struct Data data, struct Set set, int epochs, int depth, double *cost)
                 break;
             }
             printf("sorting\n");
-            SortData(data);
+            SortData(&data);
             printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
         }
         double norm = 0;
