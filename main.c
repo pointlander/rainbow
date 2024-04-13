@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <string.h>
 #include "mnist/mnist.h"
 #include "set.pb-c.h"
 
@@ -16,6 +17,8 @@ const double B2 = 0.89;
 const double Eta = .1;
 
 char *Bible;
+double Markov[256][256][256];
+
 void load_Bible() {
     FILE *f = fopen("data/10.txt.utf-8", "rb");
     if (f == NULL) {
@@ -47,6 +50,36 @@ void load_Bible() {
         printf("Error closing file!\n");
         fclose(f);
         exit(1);
+    }
+
+    for (int i = 0; i < 256; i++) {
+        for (int j = 0; j < 256; j++) {
+            for (int k = 0; k < 256; k++) {
+                Markov[i][j][k] = 0;
+            }
+        }
+    }
+
+    char a = 0;
+    char b = 0;
+    for (int i = 0; i < fsize; i++) {
+        Markov[a][b][Bible[i]]++;
+        a = b;
+        b = Bible[i];
+    }
+
+    for (int i = 0; i < 256; i++) {
+        for (int j = 0; j < 256; j++) {
+            double sum = 0;
+            for (int k = 0; k < 256; k++) {
+                double a = Markov[i][j][k];
+                sum += a*a;
+            }
+            double length = sqrt(sum);
+            for (int k = 0; k < 256; k++) {
+                Markov[i][j][k] /= length;
+            }
+        }
     }
 }
 
@@ -618,8 +651,16 @@ int main(int argc, char *argv[]) {
     signal(SIGINT, handler);
     load_mnist();
     load_Bible();
-
+    uint8_t inference = 0;
+    uint8_t lang = 0;
     if (argc > 1) {
+        if (strcmp(argv[1], "-lang") == 0) {
+            lang = 1;
+        } else {
+            inference = 1;
+        }
+    }
+    if (inference == 1) {
         printf("weights %s\n", argv[1]);
         FILE *f = fopen(argv[1], "rb");
         if (f == NULL) {
