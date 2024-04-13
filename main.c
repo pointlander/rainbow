@@ -547,8 +547,9 @@ void mnistInference(struct Set weights) {
 int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*), 
     struct Data data, struct Set set, int epochs, int depth, double *cost) {
     const int numCPU = sysconf(_SC_NPROCESSORS_ONLN);
-    const int batchSize = (data.rows/100)/numCPU;
-    const int spares = (data.rows/100)%numCPU;
+    const int rows = data.rows / 100;
+    const int batchSize = rows / numCPU;
+    const int spares = rows % numCPU;
     printf("%d %d %d\n", numCPU, batchSize, spares);
     for (int e = 0; e < epochs; e++) {
         struct Set d = NewSet(set.cols, set.rows);
@@ -562,12 +563,14 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
             struct Thread threads[numCPU];
             int j = 0;
             int cpu = 0;
-            while (j < (numCPU*batchSize + spares)) {
+            int s = 0;
+            while (j < rows) {
                 threads[cpu].diff = diff;
                 threads[cpu].offset = j;
                 threads[cpu].batchSize = batchSize;
-                if (cpu == 0) {
-                    threads[cpu].batchSize += spares;
+                if (s < spares) {
+                    threads[cpu].batchSize++;
+                    s++;
                 }
                 threads[cpu].data = data;
                 threads[cpu].set = set;
