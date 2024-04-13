@@ -417,6 +417,36 @@ double rainbow_autodiff(struct Set *set, struct Set *d_set, struct Data *data, s
     return __enzyme_autodiff((void*)rainbow, set, d_set, data, d_data);
 }
 
+extern double __enzyme_autodiffLang(void*, struct Set*, struct Set*, struct Data*, struct Data*);
+double rainbowLang(struct Set *set, struct Data *data) {
+    SelfEntropy(data, set);
+    Within(data->vectors, 100 * 32);
+    double sum = 0;
+    struct Slice vector = MakeSlice(256);
+    for (int i = 0; i < data->vectors.rows; i++) {
+        for (int j = 0; j < set->T[3].rows; j++) {
+            vector.a[j] = dot(Slice(data->vectors, i*data->vectors.cols, (i + 1)*data->vectors.cols),
+                Slice(set->T[3], j*set->T[3].cols, (j + 1)*set->T[3].cols));
+        }
+        softmax(vector);
+        double s = 0;
+        const int symbol = data->labels[i];
+        for (int j = 0; j < vector.size; j++) {
+            if (j == symbol) {
+                s += log(vector.a[j] + .001);
+            } else {
+                s += log(1 - vector.a[j] + .001);
+            }
+        }
+        sum += -s;
+    }
+    set->loss = sum;
+    return sum;
+}
+double rainbow_autodiffLang(struct Set *set, struct Set *d_set, struct Data *data, struct Data *d_data) {
+    return __enzyme_autodiffLang((void*)rainbowLang, set, d_set, data, d_data);
+}
+
 double Pow(double x, int i) {
     return pow(x, (double)(i+1));
 }
