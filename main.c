@@ -17,6 +17,7 @@ const double B2 = 0.89;
 const double Eta = .1;
 
 char *Bible;
+long BibleSize;
 double Markov[256][256][256];
 
 void load_Bible() {
@@ -32,6 +33,7 @@ void load_Bible() {
         exit(1);
     }
     long fsize = ftell(f);
+    BibleSize = fsize;
     result = fseek(f, 0, SEEK_SET);
     if (result == EOF) {
         printf("Error seeking in file!\n");
@@ -76,8 +78,14 @@ void load_Bible() {
                 sum += a*a;
             }
             double length = sqrt(sum);
-            for (int k = 0; k < 256; k++) {
-                Markov[i][j][k] /= length;
+            if (length == 0) {
+                for (int k = 0; k < 256; k++) {
+                    Markov[i][j][k] = 1/sqrt(256);
+                }
+            } else {
+                for (int k = 0; k < 256; k++) {
+                    Markov[i][j][k] /= length;
+                }
             }
         }
     }
@@ -220,6 +228,37 @@ struct Data NewData(int width) {
             index++;
         }
         labels[NUM_TRAIN+i] = test_label_char[i][0] + 10;
+    }
+    return data;
+}
+
+struct Data NewBibleData(int offset) {
+    const int width = 256;
+    const int rows = 4000;
+    struct Slice images = MakeSlice(rows*width);
+    char* labels = (char*)calloc(rows, sizeof(char));
+    struct Slice vectors = MakeMatrix(32, rows);
+    struct Slice entropy = MakeSlice(rows);
+    struct Data data = {
+        .width = width,
+        .rows = rows,
+        .images = images,
+        .labels = labels,
+        .vectors = vectors,
+        .entropy = entropy,
+        .swaps = 0
+    };
+    int index = 0;
+    Within(images, rows);
+    char label = Bible[offset+rows];
+    int last = 0;
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < width; j++) {
+            images.a[index] = Markov[last][Bible[offset+i]][j];
+            index++;
+        }
+        labels[i] = label;
+        last = Bible[offset+i];
     }
     return data;
 }
@@ -424,9 +463,10 @@ double rainbowLang(struct Set *set, struct Data *data) {
     double sum = 0;
     struct Slice vector = MakeSlice(256);
     for (int i = 0; i < data->vectors.rows; i++) {
+        struct Slice a = Slice(data->vectors, i*data->vectors.cols, (i + 1)*data->vectors.cols);
         for (int j = 0; j < set->T[3].rows; j++) {
-            vector.a[j] = dot(Slice(data->vectors, i*data->vectors.cols, (i + 1)*data->vectors.cols),
-                Slice(set->T[3], j*set->T[3].cols, (j + 1)*set->T[3].cols));
+            struct Slice b = Slice(set->T[3], j*set->T[3].cols, (j + 1)*set->T[3].cols);
+            vector.a[j] = dot(a, b);
         }
         softmax(vector);
         double s = 0;
@@ -467,10 +507,12 @@ void *Rainbow(void *ptr) {
     const int width = t->data.width;
     const int cols = t->set.cols;
     const int rows = t->set.rows;
+    //printf("%d %d %d\n", width, cols, rows);
     struct Data cp = NewZeroData(width, 100);
     Within(cp.images, 99*width + width);
     Within(cp.vectors, 100*t->set.rows);
     Within(cp.entropy, 100);
+    //Fprintf("offset batchsize %d %d\n", t->offset, t->batchSize);
     for (int j = t->offset; j < (t->offset + t->batchSize); j++) {
         for (int k = 0; k < 100; k++) {
             for (int l = 0; l < width; l++) {
@@ -602,6 +644,7 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
                     threads[cpu].batchSize++;
                     s++;
                 }
+                //printf("batchSize %d\n", batchSize);
                 threads[cpu].data = data;
                 threads[cpu].set = set;
                 threads[cpu].d_set = NewSet(set.cols, set.rows);
@@ -612,13 +655,14 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
             }
             for (int j = 0; j < numCPU; j++) {
                 pthread_join(threads[j].thread, NULL);
-                for (int l = 0; l < 3; l++) {
+                for (int l = 0; l < 4; l++) {
                     for (int k = 0; k < d.T[l].size; k++) {
                         d.T[l].a[k] += threads[j].d_set.T[l].a[k];
                     }
                 }
                 FreeSet(threads[j].d_set);
                 *cost += threads[j].cost;
+                printf("%d %f\n", j, threads[j].cost);
             }
             if (IsSorted(data)) {
                 printf("is sorted\n");
@@ -629,7 +673,7 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
             printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
         }
         double norm = 0;
-        for (int s = 0; s < 3; s++) {
+        for (int s = 0; s < 4; s++) {
             Within(d.T[s], d.T[s].size);
             for (int i = 0; i < d.T[s].size; i++) {
                 norm += d.T[s].a[i] * d.T[s].a[i];
@@ -775,22 +819,49 @@ int main(int argc, char *argv[]) {
         fclose(swaps);
         return 1;
     }
-    struct Data data = NewData(SIZE);
-    struct Set set = NewSet(data.width, 32);
-    double factor = sqrt(2.0 / ((double)data.width));
-    for (int s = 0; s < 4; s++) {
-        for (int i = 0; i < set.T[s].size; i++) {
-            set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
-        }
-    }
-    const int epochs = 2;
-    const int depth = 3;
+    struct Set set;
+    int width = 0;
     double cost = 0;
-    result = learn(rainbow_autodiff, data, set, epochs, depth, &cost);
-    if (result > 0) {
-        return result;
+    int epochs = 0;
+    if (lang == 1) {
+        width = 256;
+        set = NewSet(width, 32);
+        for (int s = 0; s < 4; s++) {
+             double factor = sqrt(2.0 / ((double)set.T[s].cols));
+            for (int i = 0; i < set.T[s].size; i++) {
+                set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
+            }
+        }
+        epochs = 1;
+        const int depth = 1;
+        for (int i = 0; i < 1024; i++) {
+            int offset = rand() % (BibleSize - 4000);
+            struct Data data = NewBibleData(offset);
+            result = learn(rainbow_autodiffLang, data, set, epochs, depth, &cost);
+            if (result > 0) {
+                return result;
+            }
+            FreeData(data);
+        }
+    } else {
+        struct Data data = NewData(SIZE);
+        width = data.width;
+        set = NewSet(data.width, 32);
+        double factor = sqrt(2.0 / ((double)data.width));
+        for (int s = 0; s < 4; s++) {
+            for (int i = 0; i < set.T[s].size; i++) {
+                set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
+            }
+        }
+        epochs = 256;
+        const int depth = 3;
+        double cost = 0;
+        result = learn(rainbow_autodiff, data, set, epochs, depth, &cost);
+        if (result > 0) {
+            return result;
+        }
+        FreeData(data);
     }
-    FreeData(data);
     struct ProtoTf64__Set protoSet = PROTO_TF64__SET__INIT;
     struct ProtoTf64__Weights *weights[4];
     for (int i = 0; i < 4; i++) {
@@ -798,7 +869,7 @@ int main(int argc, char *argv[]) {
         *weight = (struct ProtoTf64__Weights)PROTO_TF64__WEIGHTS__INIT;
         weight->n_shape = 2;
         weight->shape = calloc(2, sizeof(int64_t));
-        weight->shape[0] = data.width;
+        weight->shape[0] = width;
         weight->shape[1] = set.T[i].rows;
         weight->n_values = set.T[i].size;
         weight->values = set.T[i].a;
