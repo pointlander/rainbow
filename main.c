@@ -181,7 +181,7 @@ struct Data {
 };
 
 struct Data NewData(int width) {
-    int rows = (NUM_TRAIN+NUM_TEST);
+    const int rows = (NUM_TRAIN+NUM_TEST);
     struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)calloc(rows, sizeof(char));
     struct Slice vectors = MakeMatrix(32, rows);
@@ -209,7 +209,7 @@ struct Data NewData(int width) {
         labels[i] = train_label_char[i][0];
     }
     Within(images, NUM_TRAIN*width);
-    Within(images, (NUM_TRAIN+NUM_TEST)*width);
+    Within(images, rows*width);
     for (int i = 0; i < NUM_TEST; i++) {
         double sum = 0;
         for (int j = 0; j < width; j++) {
@@ -518,12 +518,12 @@ void mnistInference(struct Set weights) {
         FreeData(cp);
         if (IsSorted(data)) {
             printf("is sorted\n");
-            printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
+            printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
             break;
         }
         printf("sorting\n");
         SortData(&data);
-        printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
+        printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
     }
 
     int correct = 0;
@@ -593,7 +593,7 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
             }
             printf("sorting\n");
             swap = SortData(&data);
-            printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[(NUM_TRAIN+NUM_TEST)-1]);
+            printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
         }
         double norm = 0;
         for (int s = 0; s < 3; s++) {
