@@ -109,9 +109,9 @@ struct Set {
     double loss;
     int cols;
     int rows;
-    struct Slice T[3];
-    struct Slice M[3];
-    struct Slice V[3];
+    struct Slice T[4];
+    struct Slice M[4];
+    struct Slice V[4];
 };
 
 struct Set NewSet(int cols, int rows) {
@@ -123,11 +123,14 @@ struct Set NewSet(int cols, int rows) {
         set.M[i] = MakeMatrix(cols, rows);
         set.V[i] = MakeMatrix(cols, rows);
     }
+    set.T[3] = MakeMatrix(rows, 256);
+    set.M[3] = MakeMatrix(rows, 256);
+    set.V[3] = MakeMatrix(rows, 256);
     return set;
 }
 
 void FreeSet(struct Set set) {
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
         FreeSlice(set.T[i]);
         FreeSlice(set.M[i]);
         FreeSlice(set.V[i]);
@@ -377,12 +380,16 @@ double rainbow(struct Set *set, struct Data *data) {
     set->loss = sum;
     return sum;
 }
+double rainbow_autodiff(struct Set *set, struct Set *d_set, struct Data *data, struct Data *d_data) {
+    return __enzyme_autodiff((void*)rainbow, set, d_set, data, d_data);
+}
 
 double Pow(double x, int i) {
     return pow(x, (double)(i+1));
 }
 
 struct Thread {
+    double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*);
     int offset;
     int batchSize;
     pthread_t thread;
@@ -413,7 +420,7 @@ void *Rainbow(void *ptr) {
             cp.entropy.a[k] = t->data.entropy.a[k + j*100];
         }
         struct Data d_data = NewZeroData(width, 100);
-        __enzyme_autodiff((void*) rainbow, &(t->set), &(t->d_set), &cp, &d_data);
+        t->diff(&(t->set), &(t->d_set), &cp, &d_data);
         t->cost += t->set.loss;
         FreeData(d_data);
         for (int k = 0; k < 100; k++) {
@@ -459,7 +466,7 @@ void mnistInference(struct Set weights) {
                 }
                 cp.labels[k] = data.labels[k + j];
                 for (int l = 0; l < rows; l++) {
-                    cp.vectors.a[k*rows + l] = data.vectors.a[(k+j*100)*rows + l];
+                    cp.vectors.a[k*rows + l] = data.vectors.a[(k+j)*rows + l];
                 }
                 cp.entropy.a[k] = data.entropy.a[k + j];
             }
@@ -470,7 +477,7 @@ void mnistInference(struct Set weights) {
                 }
                 data.labels[k + j] = cp.labels[k];
                 for (int l = 0; l < rows; l++) {
-                    data.vectors.a[(k+j*100)*rows + l] = cp.vectors.a[k*rows + l];
+                    data.vectors.a[(k+j)*rows + l] = cp.vectors.a[k*rows + l];
                 }
                 data.entropy.a[k + j] = cp.entropy.a[k];
             }
@@ -504,7 +511,8 @@ void mnistInference(struct Set weights) {
     FreeData(data);
 }
 
-int learn(struct Data data, struct Set set, int epochs, int depth, double *cost) {
+int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*), 
+    struct Data data, struct Set set, int epochs, int depth, double *cost) {
     const int numCPU = sysconf(_SC_NPROCESSORS_ONLN);
     const int batchSize = (data.rows/100)/numCPU;
     const int spares = (data.rows/100)%numCPU;
@@ -522,6 +530,7 @@ int learn(struct Data data, struct Set set, int epochs, int depth, double *cost)
             int j = 0;
             int cpu = 0;
             while (j < (numCPU*batchSize + spares)) {
+                threads[cpu].diff = diff;
                 threads[cpu].offset = j;
                 threads[cpu].batchSize = batchSize;
                 if (cpu == 0) {
@@ -567,7 +576,7 @@ int learn(struct Data data, struct Set set, int epochs, int depth, double *cost)
         }
         double b1 = Pow(B1, e);
         double b2 = Pow(B2, e);
-        for (int s = 0; s < 3; s++) {
+        for (int s = 0; s < 4; s++) {
             Within(d.T[s], d.T[s].size);
             Within(set.M[s], d.T[s].size);
             Within(set.V[s], d.T[s].size);
@@ -646,7 +655,7 @@ int main(int argc, char *argv[]) {
         struct ProtoTf64__Set *set;
         set = proto_tf64__set__unpack(NULL, fsize, buf);
         struct Set weights;
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             weights.T[i].size = set->weights[i]->n_values;
             weights.T[i].cols = set->weights[i]->shape[0];
             weights.T[i].rows = set->weights[i]->shape[1];
@@ -660,6 +669,8 @@ int main(int argc, char *argv[]) {
             weights.V[i].rows = set->weights[i]->shape[1];
             weights.V[i].a = set->weights[i]->states + set->weights[i]->n_values;
         }
+        weights.cols = set->weights[0]->shape[0];
+        weights.rows = set->weights[0]->shape[1];
         mnistInference(weights);
 
         proto_tf64__set__free_unpacked(set, NULL);
@@ -693,22 +704,22 @@ int main(int argc, char *argv[]) {
     struct Data data = NewData(SIZE);
     struct Set set = NewSet(data.width, 32);
     double factor = sqrt(2.0 / ((double)data.width));
-    for (int s = 0; s < 3; s++) {
+    for (int s = 0; s < 4; s++) {
         for (int i = 0; i < set.T[s].size; i++) {
             set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
         }
     }
-    const int epochs = 256;
+    const int epochs = 2;
     const int depth = 3;
     double cost = 0;
-    result = learn(data, set, epochs, depth, &cost);
+    result = learn(rainbow_autodiff, data, set, epochs, depth, &cost);
     if (result > 0) {
         return result;
     }
     FreeData(data);
     struct ProtoTf64__Set protoSet = PROTO_TF64__SET__INIT;
-    struct ProtoTf64__Weights *weights[3];
-    for (int i = 0; i < 3; i++) {
+    struct ProtoTf64__Weights *weights[4];
+    for (int i = 0; i < 4; i++) {
         struct ProtoTf64__Weights *weight = calloc(1, sizeof(struct ProtoTf64__Weights));
         *weight = (struct ProtoTf64__Weights)PROTO_TF64__WEIGHTS__INIT;
         weight->n_shape = 2;
@@ -732,7 +743,7 @@ int main(int argc, char *argv[]) {
     }
     protoSet.cost = cost;
     protoSet.epoch = epochs;
-    protoSet.n_weights = 3;
+    protoSet.n_weights = 4;
     protoSet.weights = weights;
     unsigned len = proto_tf64__set__get_packed_size(&protoSet);
     void *buf = calloc(len, sizeof(uint8_t));
