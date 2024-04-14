@@ -389,6 +389,24 @@ double rainbow_autodiff(struct Set *set, struct Set *d_set, struct Data *data, s
 }
 
 extern double __enzyme_autodiffLang(void*, struct Set*, struct Set*, struct Data*, struct Data*);
+void outputTransform(struct Set *set, struct Slice *in, struct Slice *out) {
+    for (int j = 0; j < set->T[3].rows; j++) {
+        struct Slice b = Slice(set->T[3], j*set->T[3].cols, (j + 1)*set->T[3].cols);
+        out->a[j] = dot(*in, b);
+    }
+    softmax(*out);
+}
+double crossEntropy(int symbol, struct Slice *in) {
+    double s = 0;
+    for (int j = 0; j < in->size; j++) {
+        if (j == symbol) {
+            s += log(in->a[j] + .001);
+        } else {
+            s += log(1 - in->a[j] + .001);
+        }
+    }
+    return -s;
+}
 double rainbowLang(struct Set *set, struct Data *data) {
     SelfEntropy(data, set);
     Within(data->vectors, 100 * 32);
@@ -396,22 +414,10 @@ double rainbowLang(struct Set *set, struct Data *data) {
     struct Slice vector = MakeSlice(256);
     for (int i = 0; i < data->vectors.rows; i++) {
         struct Slice a = Slice(data->vectors, i*data->vectors.cols, (i + 1)*data->vectors.cols);
-        for (int j = 0; j < set->T[3].rows; j++) {
-            struct Slice b = Slice(set->T[3], j*set->T[3].cols, (j + 1)*set->T[3].cols);
-            vector.a[j] = dot(a, b);
-        }
-        softmax(vector);
-        double s = 0;
-        const int symbol = (uint8_t)(data->labels[i]);
-        for (int j = 0; j < vector.size; j++) {
-            if (j == symbol) {
-                s += log(vector.a[j] + .001);
-            } else {
-                s += log(1 - vector.a[j] + .001);
-            }
-        }
-        sum += -s;
+        outputTransform(set, &a, &vector);
+        sum += crossEntropy((uint8_t)(data->labels[i]), &vector);
     }
+    FreeSlice(vector);
     set->loss = sum;
     return sum;
 }
