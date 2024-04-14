@@ -402,7 +402,7 @@ double rainbowLang(struct Set *set, struct Data *data) {
         }
         softmax(vector);
         double s = 0;
-        const int symbol = data->labels[i];
+        const int symbol = (uint8_t)(data->labels[i]);
         for (int j = 0; j < vector.size; j++) {
             if (j == symbol) {
                 s += log(vector.a[j] + .001);
