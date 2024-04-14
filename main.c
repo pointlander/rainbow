@@ -549,13 +549,13 @@ void mnistInference(struct Set weights) {
 }
 
 int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*), 
-    struct Data data, struct Set set, int epochs, int depth, double *cost) {
+    struct Data data, struct Set set, int start, int epochs, int depth, double *cost) {
     const int numCPU = sysconf(_SC_NPROCESSORS_ONLN);
     const int rows = data.rows / 100;
     const int batchSize = rows / numCPU;
     const int spares = rows % numCPU;
     printf("%d %d %d\n", numCPU, batchSize, spares);
-    for (int e = 0; e < epochs; e++) {
+    for (int e = start; e < epochs; e++) {
         struct Set d = NewSet(set.cols, set.rows);
         *cost = 0;
         int swap = 0;
@@ -838,16 +838,17 @@ int main(int argc, char *argv[]) {
                 set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
             }
         }
-        epochs = 1;
-        const int depth = 1;
-        for (int i = 0; i < 1024; i++) {
-            int offset = rand() % (BibleSize - 4000);
-            struct Data data = NewBibleData(offset);
-            result = learn(rainbow_autodiffLang, data, set, epochs, depth, &cost);
-            if (result > 0) {
-                return result;
+        const int depth = 3;
+        for (epochs = 0; epochs < 8; epochs++) {
+            for (int i = 0; i < 1024; i++) {
+                int offset = rand() % (BibleSize - 4000);
+                struct Data data = NewBibleData(offset);
+                result = learn(rainbow_autodiffLang, data, set, epochs, epochs+1, depth, &cost);
+                if (result > 0) {
+                    return result;
+                }
+                FreeData(data);
             }
-            FreeData(data);
         }
     } else {
         struct Data data = NewData(SIZE);
@@ -862,7 +863,7 @@ int main(int argc, char *argv[]) {
         epochs = 256;
         const int depth = 3;
         double cost = 0;
-        result = learn(rainbow_autodiff, data, set, epochs, depth, &cost);
+        result = learn(rainbow_autodiff, data, set, 0, epochs, depth, &cost);
         if (result > 0) {
             return result;
         }
