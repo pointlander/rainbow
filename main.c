@@ -20,77 +20,6 @@ char *Bible;
 long BibleSize;
 double Markov[256][256][256];
 
-void load_Bible() {
-    FILE *f = fopen("data/10.txt.utf-8", "rb");
-    if (f == NULL) {
-        printf("Error opening file!\n");
-        exit(1);
-    }
-    int result = fseek(f, 0, SEEK_END);
-    if (result == EOF) {
-        printf("Error seeking in file!\n");
-        fclose(f);
-        exit(1);
-    }
-    long fsize = ftell(f);
-    BibleSize = fsize;
-    result = fseek(f, 0, SEEK_SET);
-    if (result == EOF) {
-        printf("Error seeking in file!\n");
-        fclose(f);
-        exit(1);
-    }
-    Bible = calloc(fsize, sizeof(uint8_t));
-    result = fread(Bible, fsize, 1, f);
-    if (result == EOF) {
-        printf("Error reading from file!\n");
-        fclose(f);
-        exit(1);
-    }
-    result = fclose(f);
-    if (result == EOF) {
-        printf("Error closing file!\n");
-        fclose(f);
-        exit(1);
-    }
-
-    for (int i = 0; i < 256; i++) {
-        for (int j = 0; j < 256; j++) {
-            for (int k = 0; k < 256; k++) {
-                Markov[i][j][k] = 0;
-            }
-        }
-    }
-
-    char a = 0;
-    char b = 0;
-    for (int i = 0; i < fsize; i++) {
-        Markov[a][b][Bible[i]]++;
-        a = b;
-        b = Bible[i];
-    }
-
-    for (int i = 0; i < 256; i++) {
-        for (int j = 0; j < 256; j++) {
-            double sum = 0;
-            for (int k = 0; k < 256; k++) {
-                double a = Markov[i][j][k];
-                sum += a*a;
-            }
-            double length = sqrt(sum);
-            if (length == 0) {
-                for (int k = 0; k < 256; k++) {
-                    Markov[i][j][k] = 1/sqrt(256);
-                }
-            } else {
-                for (int k = 0; k < 256; k++) {
-                    Markov[i][j][k] /= length;
-                }
-            }
-        }
-    }
-}
-
 struct Slice {
     double* a;
     int size;
@@ -251,14 +180,15 @@ struct Data NewBibleData(int offset) {
     int index = 0;
     Within(images, rows);
     char label = Bible[offset+rows];
-    int last = 0;
+    uint8_t last = 0;
     for (int i = 0; i < rows; i++) {
+        const uint8_t current = Bible[offset+i];
         for (int j = 0; j < width; j++) {
-            images.a[index] = Markov[last][Bible[offset+i]][j];
+            images.a[index] = Markov[last][current][j];
             index++;
         }
         labels[i] = label;
-        last = Bible[offset+i];
+        last = current;
     }
     return data;
 }
@@ -401,10 +331,11 @@ void SelfEntropy(struct Data *data, struct Set *set) {
         const int width = data->width;
         int index = 0;
         for (int i = 0; i < data->rows; i++) {
+            struct Slice a = Slice(data->images, i*width, (i+1)*width);
             const int rows = set->T[x].rows;
             for (int j = 0; j < rows; j++) {
-                inputs[x].a[index] = dot(Slice(set->T[x], j*width, (j+1)*width),
-                    Slice(data->images, i*width, (i+1)*width));
+                struct Slice b = Slice(set->T[x], j*width, (j+1)*width);
+                inputs[x].a[index] = dot(b, a);
                 index++;
             }
         }
@@ -415,9 +346,10 @@ void SelfEntropy(struct Data *data, struct Set *set) {
     struct Slice entropies = MakeSlice(cols);
     struct Slice values = MakeSlice(rows);
     for (int i = 0; i < rows; i++) {
+        struct Slice a = Slice(inputs[0], i*cols, (i+1)*cols);
         for (int j = 0; j < rows; j++) {
-            values.a[j] = dot(Slice(inputs[0], i*cols, (i+1)*cols),
-                Slice(inputs[1], j*cols, (j+1)*cols));
+            struct Slice b = Slice(inputs[1], j*cols, (j+1)*cols);
+            values.a[j] = dot(a, b);
         }
         softmax(values);
 
@@ -662,7 +594,6 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
                 }
                 FreeSet(threads[j].d_set);
                 *cost += threads[j].cost;
-                printf("%d %f\n", j, threads[j].cost);
             }
             if (IsSorted(data)) {
                 printf("is sorted\n");
@@ -721,6 +652,81 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
     }
     printf("\n");
     return 0;
+}
+
+void load_Bible() {
+    FILE *f = fopen("data/10.txt.utf-8", "rb");
+    if (f == NULL) {
+        printf("Error opening file!\n");
+        exit(1);
+    }
+    int result = fseek(f, 0, SEEK_END);
+    if (result == EOF) {
+        printf("Error seeking in file!\n");
+        fclose(f);
+        exit(1);
+    }
+    long fsize = ftell(f);
+    BibleSize = fsize;
+    result = fseek(f, 0, SEEK_SET);
+    if (result == EOF) {
+        printf("Error seeking in file!\n");
+        fclose(f);
+        exit(1);
+    }
+    Bible = calloc(fsize, sizeof(uint8_t));
+    result = fread(Bible, fsize, 1, f);
+    if (result == EOF) {
+        printf("Error reading from file!\n");
+        fclose(f);
+        exit(1);
+    }
+    result = fclose(f);
+    if (result == EOF) {
+        printf("Error closing file!\n");
+        fclose(f);
+        exit(1);
+    }
+
+    for (int i = 0; i < 256; i++) {
+        for (int j = 0; j < 256; j++) {
+            for (int k = 0; k < 256; k++) {
+                Markov[i][j][k] = 0;
+            }
+        }
+    }
+
+    char a = 0;
+    char b = 0;
+    for (int i = 0; i < fsize; i++) {
+        Markov[a][b][Bible[i]]++;
+        a = b;
+        b = Bible[i];
+    }
+
+    struct Slice buffer = MakeSlice(256);
+    for (int i = 0; i < 256; i++) {
+        for (int j = 0; j < 256; j++) {
+            double sum = 0;
+            for (int k = 0; k < 256; k++) {
+                double a = Markov[i][j][k];
+                buffer.a[k] = a;
+                sum += a*a;
+            }
+            //double length = sqrt(sum);
+            //if (length == 0) {
+            //    for (int k = 0; k < 256; k++) {
+            //        Markov[i][j][k] = 1/sqrt(256);
+            //    }
+            //} else {
+            softmax(buffer);
+            for (int k = 0; k < 256; k++) {
+                Markov[i][j][k] = buffer.a[k];
+            }
+            //}
+        }
+    }
+    FreeSlice(buffer);
 }
 
 int main(int argc, char *argv[]) {
