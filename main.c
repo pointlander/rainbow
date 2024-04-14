@@ -414,8 +414,21 @@ double rainbowLang(struct Set *set, struct Data *data) {
     struct Slice vector = MakeSlice(256);
     for (int i = 0; i < data->vectors.rows; i++) {
         struct Slice a = Slice(data->vectors, i*data->vectors.cols, (i + 1)*data->vectors.cols);
-        outputTransform(set, &a, &vector);
-        sum += crossEntropy((uint8_t)(data->labels[i]), &vector);
+        for (int j = 0; j < set->T[3].rows; j++) {
+            struct Slice b = Slice(set->T[3], j*set->T[3].cols, (j + 1)*set->T[3].cols);
+            vector.a[j] = dot(a, b);
+        }
+        softmax(vector);
+        double s = 0;
+        const int symbol = (uint8_t)(data->labels[i]);
+        for (int j = 0; j < vector.size; j++) {
+            if (j == symbol) {
+                s += log(vector.a[j] + .001);
+            } else {
+                s += log(1 - vector.a[j] + .001);
+            }
+        }
+        sum += -s;
     }
     FreeSlice(vector);
     set->loss = sum;
