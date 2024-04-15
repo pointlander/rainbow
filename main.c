@@ -14,7 +14,7 @@ const double B1 = 0.8;
 // B2 exponential decay rate for the second-moment estimates
 const double B2 = 0.89;
 // Eta is the learning rate
-const double Eta = .0001;
+const double Eta = .001;
 
 char *Bible;
 long BibleSize;
@@ -63,7 +63,7 @@ void Within(struct Slice a, int n) {
 
 struct Slice Slice(struct Slice a, int begin, int end) {
     if ((end < begin) || (begin < 0) || (end > a.size)) {
-        printf("index out of bounds for slice\n");
+        printf("index out of bounds for slice %d %d\n", begin, end);
         exit(1);
     }
     struct Slice x = {
@@ -568,48 +568,77 @@ void mnistInference(struct Set weights) {
 }
 
 void langInference(struct Set weights) {
-     int offset = rand() % (BibleSize - 4000);
-    struct Data data = NewBibleData(offset);
-    const int rows = weights.rows;
-    for (int i = 0; i < 3; i++) {
-        printf("calculating self entropy\n");
-        struct Data cp = NewZeroData(data.width, 100);
-        Within(cp.images, 99*data.width + data.width);
-        Within(cp.entropy, 100);
-        for (int j = 0; j < data.rows; j += 100) {
-            for (int k = 0; k < 100; k++) {
-                for (int l = 0; l < data.width; l++) {
-                    cp.images.a[k*data.width + l] = data.images.a[(k+j)*data.width + l];
+    double correct = 0;
+    double total = 0;
+    for (int x = 0; x < 1024; x++) {
+        int offset = rand() % (BibleSize - 4000);
+        struct Data data = NewBibleData(offset);
+        uint8_t target = (uint8_t)(data.labels[0]);
+        const int rows = weights.rows;
+        for (int i = 0; i < 3; i++) {
+            printf("calculating self entropy\n");
+            struct Data cp = NewZeroData(data.width, 100);
+            Within(cp.images, 99*data.width + data.width);
+            Within(cp.entropy, 100);
+            for (int j = 0; j < data.rows; j += 100) {
+                for (int k = 0; k < 100; k++) {
+                    for (int l = 0; l < data.width; l++) {
+                        cp.images.a[k*data.width + l] = data.images.a[(k+j)*data.width + l];
+                    }
+                    cp.labels[k] = data.labels[k + j];
+                    for (int l = 0; l < rows; l++) {
+                        cp.vectors.a[k*rows + l] = data.vectors.a[(k+j)*rows + l];
+                    }
+                    cp.entropy.a[k] = data.entropy.a[k + j];
                 }
-                cp.labels[k] = data.labels[k + j];
-                for (int l = 0; l < rows; l++) {
-                    cp.vectors.a[k*rows + l] = data.vectors.a[(k+j)*rows + l];
+                rainbow(&weights, &cp);
+                for (int k = 0; k < 100; k++) {
+                    for (int l = 0; l < data.width; l++) {
+                        data.images.a[(k+j)*data.width + l] = cp.images.a[k*data.width + l];
+                    }
+                    data.labels[k + j] = cp.labels[k];
+                    for (int l = 0; l < rows; l++) {
+                        data.vectors.a[(k+j)*rows + l] = cp.vectors.a[k*rows + l];
+                    }
+                    data.entropy.a[k + j] = cp.entropy.a[k];
                 }
-                cp.entropy.a[k] = data.entropy.a[k + j];
             }
-            rainbow(&weights, &cp);
-            for (int k = 0; k < 100; k++) {
-                for (int l = 0; l < data.width; l++) {
-                    data.images.a[(k+j)*data.width + l] = cp.images.a[k*data.width + l];
-                }
-                data.labels[k + j] = cp.labels[k];
-                for (int l = 0; l < rows; l++) {
-                    data.vectors.a[(k+j)*rows + l] = cp.vectors.a[k*rows + l];
-                }
-                data.entropy.a[k + j] = cp.entropy.a[k];
+            FreeData(cp);
+            if (IsSorted(data)) {
+                printf("is sorted\n");
+                printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
+                break;
             }
-        }
-        FreeData(cp);
-        if (IsSorted(data)) {
-            printf("is sorted\n");
+            printf("sorting\n");
+            SortData(&data);
             printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
-            break;
+
+            struct Slice vector = MakeSlice(256);
+            for (int j = 0; j < data.vectors.rows; j++) {
+                struct Slice a = Slice(data.vectors, j*data.vectors.cols, (j + 1)*data.vectors.cols);
+                for (int k = 0; k < weights.T[3].rows; k++) {
+                    struct Slice b = Slice(weights.T[3], k*32, (k + 1)*32);
+                    vector.a[k] = dot(a, b);
+                }   
+                softmax(vector);
+                double max = 0;
+                int index = 0;
+                for (int k = 0; k < vector.size; k++) {
+                    if (vector.a[k] > max) {
+                        max = vector.a[k];
+                        index = j;
+                    }
+                }
+                if (((uint8_t)index) == target) {
+                    correct++;
+                }
+                total++;
+            }
+            FreeSlice(vector);
         }
-        printf("sorting\n");
-        SortData(&data);
-        printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
+        FreeData(data);
     }
-    FreeData(data);
+    printf("correct %f\n", correct/total);
 }
 
 int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*), 
@@ -768,29 +797,29 @@ void load_Bible() {
         b = Bible[i];
     }
 
-    struct Slice buffer = MakeSlice(256);
+    //struct Slice buffer = MakeSlice(256);
     for (int i = 0; i < 256; i++) {
         for (int j = 0; j < 256; j++) {
             double sum = 0;
             for (int k = 0; k < 256; k++) {
                 double a = Markov[i][j][k];
-                buffer.a[k] = a;
+                //buffer.a[k] = a;
                 sum += a*a;
             }
-            //double length = sqrt(sum);
-            //if (length == 0) {
-            //    for (int k = 0; k < 256; k++) {
-            //        Markov[i][j][k] = 1/sqrt(256);
-            //    }
-            //} else {
-            softmax(buffer);
-            for (int k = 0; k < 256; k++) {
-                Markov[i][j][k] = buffer.a[k];
+            double length = sqrt(sum);
+            if (length == 0) {
+                for (int k = 0; k < 256; k++) {
+                    Markov[i][j][k] = 1/sqrt(256);
+                }
+            } else {
+                //softmax(buffer);
+                for (int k = 0; k < 256; k++) {
+                    Markov[i][j][k] /= length;
+                }
             }
-            //}
         }
     }
-    FreeSlice(buffer);
+    //FreeSlice(buffer);
 }
 
 int main(int argc, char *argv[]) {
@@ -905,7 +934,7 @@ int main(int argc, char *argv[]) {
         width = 256;
         set = NewSet(width, 32);
         for (int s = 0; s < 4; s++) {
-             double factor = sqrt(2.0 / ((double)set.T[s].cols));
+            double factor = sqrt(2.0 / ((double)set.T[s].cols));
             for (int i = 0; i < set.T[s].size; i++) {
                 set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
             }
@@ -948,7 +977,7 @@ int main(int argc, char *argv[]) {
         *weight = (struct ProtoTf64__Weights)PROTO_TF64__WEIGHTS__INIT;
         weight->n_shape = 2;
         weight->shape = calloc(2, sizeof(int64_t));
-        weight->shape[0] = width;
+        weight->shape[0] = set.T[i].cols;
         weight->shape[1] = set.T[i].rows;
         weight->n_values = set.T[i].size;
         weight->values = set.T[i].a;
