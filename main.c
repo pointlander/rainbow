@@ -567,6 +567,51 @@ void mnistInference(struct Set weights) {
     FreeData(data);
 }
 
+void langInference(struct Set weights) {
+     int offset = rand() % (BibleSize - 4000);
+    struct Data data = NewBibleData(offset);
+    const int rows = weights.rows;
+    for (int i = 0; i < 3; i++) {
+        printf("calculating self entropy\n");
+        struct Data cp = NewZeroData(data.width, 100);
+        Within(cp.images, 99*data.width + data.width);
+        Within(cp.entropy, 100);
+        for (int j = 0; j < data.rows; j += 100) {
+            for (int k = 0; k < 100; k++) {
+                for (int l = 0; l < data.width; l++) {
+                    cp.images.a[k*data.width + l] = data.images.a[(k+j)*data.width + l];
+                }
+                cp.labels[k] = data.labels[k + j];
+                for (int l = 0; l < rows; l++) {
+                    cp.vectors.a[k*rows + l] = data.vectors.a[(k+j)*rows + l];
+                }
+                cp.entropy.a[k] = data.entropy.a[k + j];
+            }
+            rainbow(&weights, &cp);
+            for (int k = 0; k < 100; k++) {
+                for (int l = 0; l < data.width; l++) {
+                    data.images.a[(k+j)*data.width + l] = cp.images.a[k*data.width + l];
+                }
+                data.labels[k + j] = cp.labels[k];
+                for (int l = 0; l < rows; l++) {
+                    data.vectors.a[(k+j)*rows + l] = cp.vectors.a[k*rows + l];
+                }
+                data.entropy.a[k + j] = cp.entropy.a[k];
+            }
+        }
+        FreeData(cp);
+        if (IsSorted(data)) {
+            printf("is sorted\n");
+            printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
+            break;
+        }
+        printf("sorting\n");
+        SortData(&data);
+        printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
+    }
+    FreeData(data);
+}
+
 int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*), 
     struct Data data, struct Set set, int start, int epochs, int depth, double *cost) {
     const int numCPU = sysconf(_SC_NPROCESSORS_ONLN);
@@ -754,11 +799,15 @@ int main(int argc, char *argv[]) {
     load_mnist();
     load_Bible();
     uint8_t inference = 0;
+    uint8_t langInferenceFlag = 0;
     uint8_t lang = 0;
     if (argc > 1) {
         if (strcmp(argv[1], "-lang") == 0) {
             lang = 1;
         } else {
+            if (argc > 2) {
+                langInferenceFlag = 1;
+            }
             inference = 1;
         }
     }
@@ -814,7 +863,11 @@ int main(int argc, char *argv[]) {
         }
         weights.cols = set->weights[0]->shape[0];
         weights.rows = set->weights[0]->shape[1];
-        mnistInference(weights);
+        if (langInferenceFlag == 1) {
+            langInference(weights);
+        } else {
+            mnistInference(weights);
+        }
 
         proto_tf64__set__free_unpacked(set, NULL);
         free(buf);
