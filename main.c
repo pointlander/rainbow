@@ -626,7 +626,7 @@ void langInference(struct Set weights) {
                 for (int k = 0; k < vector.size; k++) {
                     if (vector.a[k] > max) {
                         max = vector.a[k];
-                        index = j;
+                        index = k;
                     }
                 }
                 if (((uint8_t)index) == target) {
@@ -789,13 +789,27 @@ void load_Bible() {
         }
     }
 
+    int counts[256];
+    for (int i = 0; i < 256; i++) {
+        counts[i] = 0;
+    }
+
     char a = 0;
     char b = 0;
     for (int i = 0; i < fsize; i++) {
+        counts[Bible[i]]++;
         Markov[a][b][Bible[i]]++;
         a = b;
         b = Bible[i];
     }
+
+    double count = 0;
+    for (int i = 0; i < 256; i++) {
+        if (counts[i] > 0) {
+            count++;
+        }
+    }
+    printf("symbols %f %f\n", count, 1/count);
 
     //struct Slice buffer = MakeSlice(256);
     for (int i = 0; i < 256; i++) {
