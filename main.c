@@ -617,9 +617,9 @@ void langInference(struct Set weights) {
             for (int j = 0; j < data.vectors.rows; j++) {
                 struct Slice a = Slice(data.vectors, j*data.vectors.cols, (j + 1)*data.vectors.cols);
                 for (int k = 0; k < weights.T[3].rows; k++) {
-                    struct Slice b = Slice(weights.T[3], k*32, (k + 1)*32);
+                    struct Slice b = Slice(weights.T[3], k*weights.T[3].cols, (k + 1)*weights.T[3].cols);
                     vector.a[k] = dot(a, b);
-                }   
+                }
                 softmax(vector);
                 double max = 0;
                 int index = 0;
@@ -940,9 +940,20 @@ int main(int argc, char *argv[]) {
             }
         }
         const int depth = 3;
+        const int examples = 8*1024;
+        int *offsets = (int *)calloc(examples, sizeof(int));
+        for (int i = 0; i < examples; i++) {
+            offsets[i] = rand() % (BibleSize - 4000);
+        }
         for (epochs = 0; epochs < 8; epochs++) {
-            for (int i = 0; i < 1024; i++) {
-                int offset = rand() % (BibleSize - 4000);
+            for (int i = 0; i < examples; i++) {
+                int j = i + (rand() % (examples - i));
+                int offset = offsets[i];
+                offsets[i] = offsets[j];
+                offsets[j] = offset;
+            }
+            for (int i = 0; i < examples; i++) {
+                int offset = offsets[i];
                 struct Data data = NewBibleData(offset);
                 result = learn(rainbow_autodiffLang, data, set, epochs, epochs+1, depth, &cost);
                 if (result > 0) {
@@ -951,6 +962,7 @@ int main(int argc, char *argv[]) {
                 FreeData(data);
             }
         }
+        free(offsets);
     } else {
         struct Data data = NewData(SIZE);
         width = data.width;
