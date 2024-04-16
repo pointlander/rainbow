@@ -570,11 +570,17 @@ void mnistInference(struct Set weights) {
 void langInference(struct Set weights) {
     double correct = 0;
     double total = 0;
+    double correctVotes = 0;
+    double totalVotes = 0;
     for (int x = 0; x < 1024; x++) {
         int offset = rand() % (BibleSize - 4000);
         struct Data data = NewBibleData(offset);
         uint8_t target = (uint8_t)(data.labels[0]);
         const int rows = weights.rows;
+        int votes[256];
+        for (int i = 0; i < 256; i++) {
+            votes[i] = 0;
+        }
         for (int i = 0; i < 3; i++) {
             printf("calculating self entropy\n");
             struct Data cp = NewZeroData(data.width, 100);
@@ -633,12 +639,27 @@ void langInference(struct Set weights) {
                     correct++;
                 }
                 total++;
+
+                votes[(uint8_t)index]++;
             }
             FreeSlice(vector);
         }
+        int max = 0;
+        int index = 0;
+        for (int y = 0; y < 256; y++) {
+            if (votes[y] > max) {
+                max = votes[y];
+                index = y;
+            }
+        }
+        if (((uint8_t)index) == target) {
+            correctVotes++;
+        }
+        totalVotes++;
         FreeData(data);
     }
     printf("correct %f\n", correct/total);
+    printf("votes %f\n", correctVotes/totalVotes);
 }
 
 int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*), 
