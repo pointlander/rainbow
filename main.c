@@ -15,6 +15,8 @@ const double B1 = 0.8;
 const double B2 = 0.89;
 // Eta is the learning rate
 const double Eta = .001;
+// Size is the size of the network
+const int Size = 64;
 
 char *Bible;
 long BibleSize;
@@ -121,7 +123,7 @@ struct Data NewData(int width) {
     const int rows = (NUM_TRAIN+NUM_TEST);
     struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)calloc(rows, sizeof(char));
-    struct Slice vectors = MakeMatrix(32, rows);
+    struct Slice vectors = MakeMatrix(Size, rows);
     struct Slice entropy = MakeSlice(rows);
     struct Data data = {
         .width = width,
@@ -166,7 +168,7 @@ struct Data NewBibleData(int offset) {
     const int rows = 4000;
     struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)calloc(rows, sizeof(char));
-    struct Slice vectors = MakeMatrix(32, rows);
+    struct Slice vectors = MakeMatrix(Size, rows);
     struct Slice entropy = MakeSlice(rows);
     struct Data data = {
         .width = width,
@@ -196,7 +198,7 @@ struct Data NewBibleData(int offset) {
 struct Data NewZeroData(int width, int rows) {
     struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)calloc(rows, sizeof(char));
-    struct Slice vectors = MakeMatrix(32, rows);
+    struct Slice vectors = MakeMatrix(Size, rows);
     struct Slice entropy = MakeSlice(rows);
     struct Data data = {
         .width = width,
@@ -409,7 +411,7 @@ double crossEntropy(int symbol, struct Slice *in) {
 }
 double rainbowLang(struct Set *set, struct Data *data) {
     SelfEntropy(data, set);
-    Within(data->vectors, 100 * 32);
+    Within(data->vectors, 100 * Size);
     double sum = 0;
     struct Slice vector = MakeSlice(256);
     for (int i = 0; i < data->vectors.rows; i++) {
@@ -967,7 +969,7 @@ int main(int argc, char *argv[]) {
     int epochs = 0;
     if (lang == 1) {
         width = 256;
-        set = NewSet(width, 32);
+        set = NewSet(width, Size);
         for (int s = 0; s < 4; s++) {
             double factor = sqrt(2.0 / ((double)set.T[s].cols));
             for (int i = 0; i < set.T[s].size; i++) {
@@ -1001,7 +1003,7 @@ int main(int argc, char *argv[]) {
     } else {
         struct Data data = NewData(SIZE);
         width = data.width;
-        set = NewSet(data.width, 32);
+        set = NewSet(data.width, Size);
         double factor = sqrt(2.0 / ((double)data.width));
         for (int s = 0; s < 4; s++) {
             for (int i = 0; i < set.T[s].size; i++) {
