@@ -660,7 +660,7 @@ void langInference(struct Set weights) {
                     }
                     cp.entropy.a[k] = data.entropy.a[k + j];
                 }
-                rainbow(&weights, &cp);
+                rainbowLang(&weights, &cp);
                 for (int k = 0; k < 100; k++) {
                     for (int l = 0; l < data.width; l++) {
                         data.images.a[(k+j)*data.width + l] = cp.images.a[k*data.width + l];
