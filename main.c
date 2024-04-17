@@ -570,18 +570,26 @@ void mnistInference(struct Set weights) {
 }
 
 void langInference(struct Set weights) {
-    double correct = 0;
-    double total = 0;
-    double correctVotes = 0;
-    double totalVotes = 0;
+    double correct[3];
+    double total[3];
+    double correctVotes[3];
+    double totalVotes[3];
+    for (int i = 0; i < 3; i++) {
+        correct[i] = 0;
+        total[i] = 0;
+        correctVotes[i] = 0;
+        totalVotes[i] = 0;
+    }
     for (int x = 0; x < 1024; x++) {
         int offset = rand() % (BibleSize - 4000);
         struct Data data = NewBibleData(offset);
         uint8_t target = (uint8_t)(data.labels[0]);
         const int rows = weights.rows;
-        int votes[256];
-        for (int i = 0; i < 256; i++) {
-            votes[i] = 0;
+        int votes[3][256];
+        for (int j = 0; j < 3; j++) {
+            for (int i = 0; i < 256; i++) {
+                votes[j][i] = 0;
+            }
         }
         for (int i = 0; i < 3; i++) {
             printf("calculating self entropy\n");
@@ -638,30 +646,34 @@ void langInference(struct Set weights) {
                     }
                 }
                 if (((uint8_t)index) == target) {
-                    correct++;
+                    correct[i]++;
                 }
-                total++;
+                total[i]++;
 
-                votes[(uint8_t)index]++;
+                votes[i][(uint8_t)index]++;
             }
             FreeSlice(vector);
         }
-        int max = 0;
-        int index = 0;
-        for (int y = 0; y < 256; y++) {
-            if (votes[y] > max) {
-                max = votes[y];
-                index = y;
+        for (int i = 0; i < 3; i++) {
+            int max = 0;
+            int index = 0;
+            for (int y = 0; y < 256; y++) {
+                if (votes[i][y] > max) {
+                    max = votes[i][y];
+                    index = y;
+                }
             }
+            if (((uint8_t)index) == target) {
+                correctVotes[i]++;
+            }
+            totalVotes[i]++;
         }
-        if (((uint8_t)index) == target) {
-            correctVotes++;
-        }
-        totalVotes++;
         FreeData(data);
     }
-    printf("correct %f\n", correct/total);
-    printf("votes %f\n", correctVotes/totalVotes);
+    for (int i = 0; i < 3; i++) {
+        printf("correct %d %f\n", i, correct[i]/total[i]);
+        printf("votes %d %f\n", i, correctVotes[i]/totalVotes[i]);
+    }
 }
 
 int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*), 
