@@ -123,7 +123,7 @@ struct Data NewData(int width) {
     const int rows = (NUM_TRAIN+NUM_TEST);
     struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)calloc(rows, sizeof(char));
-    struct Slice vectors = MakeMatrix(Size, rows);
+    struct Slice vectors = MakeMatrix(256, rows);
     struct Slice entropy = MakeSlice(rows);
     struct Data data = {
         .width = width,
@@ -168,7 +168,7 @@ struct Data NewBibleData(int offset) {
     const int rows = 4000;
     struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)calloc(rows, sizeof(char));
-    struct Slice vectors = MakeMatrix(Size, rows);
+    struct Slice vectors = MakeMatrix(256, rows);
     struct Slice entropy = MakeSlice(rows);
     struct Data data = {
         .width = width,
@@ -198,7 +198,7 @@ struct Data NewBibleData(int offset) {
 struct Data NewZeroData(int width, int rows) {
     struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)calloc(rows, sizeof(char));
-    struct Slice vectors = MakeMatrix(Size, rows);
+    struct Slice vectors = MakeMatrix(256, rows);
     struct Slice entropy = MakeSlice(rows);
     struct Data data = {
         .width = width,
@@ -375,6 +375,66 @@ void SelfEntropy(struct Data *data, struct Set *set) {
     FreeSlice(inputs[2]);
 }
 
+void SelfEntropyLang(struct Data *data, struct Set *set) {
+    struct Slice inputs[3] = {
+        MakeMatrix(set->T[0].rows, data->rows),
+        MakeMatrix(set->T[1].rows, data->rows),
+        MakeMatrix(set->T[2].rows, data->rows)
+    };
+    for (int x = 0; x < 3; x++) {
+        const int width = data->width;
+        int index = 0;
+        for (int i = 0; i < data->rows; i++) {
+            struct Slice a = Slice(data->images, i*width, (i+1)*width);
+            const int rows = set->T[x].rows;
+            for (int j = 0; j < rows; j++) {
+                struct Slice b = Slice(set->T[x], j*width, (j+1)*width);
+                inputs[x].a[index] = dot(b, a);
+                index++;
+            }
+        }
+    }
+
+    const int cols = inputs[0].cols;
+    const int rows = inputs[0].rows;
+    struct Slice entropies = MakeSlice(256);
+    struct Slice vectors = MakeSlice(256);
+    struct Slice values = MakeSlice(rows);
+    for (int i = 0; i < rows; i++) {
+        struct Slice a = Slice(inputs[0], i*cols, (i+1)*cols);
+        for (int j = 0; j < rows; j++) {
+            struct Slice b = Slice(inputs[1], j*cols, (j+1)*cols);
+            values.a[j] = dot(a, b);
+        }
+        softmax(values);
+
+        for (int j = 0; j < cols; j++) {
+            vectors.a[j] = dotT(values, inputs[2].a, j, cols);
+        }
+        for (int j = 0; j < set->T[3].rows; j++) {
+            struct Slice b = Slice(set->T[3], j*set->T[3].cols, (j + 1)*set->T[3].cols);
+            entropies.a[j] = dot(vectors, b);
+        }
+        softmax(entropies);
+        for (int j = 0; j < entropies.size; j++) {
+            data->vectors.a[i*data->vectors.cols + j] = entropies.a[j];
+        }
+
+        double entropy = 0;
+        Within(entropies, entropies.size);
+        for (int j = 0; j < entropies.size; j++) {
+            entropy += entropies.a[j] * log(entropies.a[j]);
+        }
+        data->entropy.a[i] = -entropy;
+    }
+    FreeSlice(entropies);
+    FreeSlice(vectors);
+    FreeSlice(values);
+    FreeSlice(inputs[0]);
+    FreeSlice(inputs[1]);
+    FreeSlice(inputs[2]);
+}
+
 extern double __enzyme_autodiff(void*, struct Set*, struct Set*, struct Data*, struct Data*);
 double rainbow(struct Set *set, struct Data *data) {
     SelfEntropy(data, set);
@@ -410,17 +470,11 @@ double crossEntropy(int symbol, struct Slice *in) {
     return -s;
 }
 double rainbowLang(struct Set *set, struct Data *data) {
-    SelfEntropy(data, set);
-    Within(data->vectors, 100 * Size);
+    SelfEntropyLang(data, set);
+    Within(data->vectors, 100 * 256);
     double sum = 0;
-    struct Slice vector = MakeSlice(256);
     for (int i = 0; i < data->vectors.rows; i++) {
-        struct Slice a = Slice(data->vectors, i*data->vectors.cols, (i + 1)*data->vectors.cols);
-        for (int j = 0; j < set->T[3].rows; j++) {
-            struct Slice b = Slice(set->T[3], j*set->T[3].cols, (j + 1)*set->T[3].cols);
-            vector.a[j] = dot(a, b);
-        }
-        softmax(vector);
+        struct Slice vector = Slice(data->vectors, i*data->vectors.cols, (i + 1)*data->vectors.cols);
         double s = 0;
         const int symbol = (uint8_t)(data->labels[i]);
         for (int j = 0; j < vector.size; j++) {
@@ -432,7 +486,6 @@ double rainbowLang(struct Set *set, struct Data *data) {
         }
         sum += -s;
     }
-    FreeSlice(vector);
     set->loss = sum;
     return sum;
 }
@@ -472,8 +525,8 @@ void *Rainbow(void *ptr) {
                 cp.images.a[k*width + l] = t->data.images.a[(k+j*100)*width + l];
             }
             cp.labels[k] = t->data.labels[k + j*100];
-            for (int l = 0; l < rows; l++) {
-                cp.vectors.a[k*rows + l] = t->data.vectors.a[(k+j*100)*rows + l];
+            for (int l = 0; l < cp.vectors.cols; l++) {
+                cp.vectors.a[k*cp.vectors.cols + l] = t->data.vectors.a[(k+j*100)*t->data.vectors.cols + l];
             }
             cp.entropy.a[k] = t->data.entropy.a[k + j*100];
         }
@@ -486,8 +539,8 @@ void *Rainbow(void *ptr) {
                 t->data.images.a[(k+j*100)*width + l] = cp.images.a[k*width + l];
             }
             t->data.labels[k + j*100] = cp.labels[k];
-            for (int l = 0; l < rows; l++) {
-                t->data.vectors.a[(k+j*100)*rows + l] = cp.vectors.a[k*rows + l];
+            for (int l = 0; l < t->data.vectors.cols; l++) {
+                t->data.vectors.a[(k+j*100)*t->data.vectors.cols + l] = cp.vectors.a[k*cp.vectors.cols + l];
             }
             t->data.entropy.a[k + j*100] = cp.entropy.a[k];
         }
@@ -602,19 +655,19 @@ void langInference(struct Set weights) {
                         cp.images.a[k*data.width + l] = data.images.a[(k+j)*data.width + l];
                     }
                     cp.labels[k] = data.labels[k + j];
-                    for (int l = 0; l < rows; l++) {
-                        cp.vectors.a[k*rows + l] = data.vectors.a[(k+j)*rows + l];
+                    for (int l = 0; l < cp.vectors.cols; l++) {
+                        cp.vectors.a[k*cp.vectors.cols + l] = data.vectors.a[(k+j)*data.vectors.cols + l];
                     }
                     cp.entropy.a[k] = data.entropy.a[k + j];
                 }
-                rainbow(&weights, &cp);
+                rainbowLang(&weights, &cp);
                 for (int k = 0; k < 100; k++) {
                     for (int l = 0; l < data.width; l++) {
                         data.images.a[(k+j)*data.width + l] = cp.images.a[k*data.width + l];
                     }
                     data.labels[k + j] = cp.labels[k];
-                    for (int l = 0; l < rows; l++) {
-                        data.vectors.a[(k+j)*rows + l] = cp.vectors.a[k*rows + l];
+                    for (int l = 0; l < data.vectors.cols; l++) {
+                        data.vectors.a[(k+j)*data.vectors.cols + l] = cp.vectors.a[k*cp.vectors.cols + l];
                     }
                     data.entropy.a[k + j] = cp.entropy.a[k];
                 }
@@ -629,14 +682,8 @@ void langInference(struct Set weights) {
             SortData(&data);
             printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
 
-            struct Slice vector = MakeSlice(256);
             for (int j = 0; j < data.vectors.rows; j++) {
-                struct Slice a = Slice(data.vectors, j*data.vectors.cols, (j + 1)*data.vectors.cols);
-                for (int k = 0; k < weights.T[3].rows; k++) {
-                    struct Slice b = Slice(weights.T[3], k*weights.T[3].cols, (k + 1)*weights.T[3].cols);
-                    vector.a[k] = dot(a, b);
-                }
-                softmax(vector);
+                struct Slice vector = Slice(data.vectors, j*data.vectors.cols, (j + 1)*data.vectors.cols);
                 double max = 0;
                 int index = 0;
                 for (int k = 0; k < vector.size; k++) {
@@ -652,7 +699,6 @@ void langInference(struct Set weights) {
 
                 votes[i][(uint8_t)index]++;
             }
-            FreeSlice(vector);
         }
         for (int i = 0; i < 3; i++) {
             int max = 0;
@@ -684,10 +730,10 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
     const int spares = rows % numCPU;
     printf("%d %d %d\n", numCPU, batchSize, spares);
     for (int e = start; e < epochs; e++) {
-        struct Set d = NewSet(set.cols, set.rows);
         *cost = 0;
         int swap = 0;
         for (int i = 0; i < depth; i++) {
+            struct Set d = NewSet(set.cols, set.rows);
             printf("calculating self entropy %d\n", i);
             Within(data.images, (data.rows - 1)*data.width + data.width);
             Within(data.vectors, data.rows*d.rows);
@@ -730,7 +776,7 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
             printf("sorting\n");
             swap = SortData(&data);
             printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
-        }
+        
         double norm = 0;
         for (int s = 0; s < 4; s++) {
             Within(d.T[s], d.T[s].size);
@@ -764,6 +810,7 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
             }
         }
         FreeSet(d);
+        }
         printf("cost %.32f, %d\n", *cost, e);
         int result = fprintf(fp, "%d %.32f\n", e, *cost);
         if (result == EOF) {
@@ -994,7 +1041,7 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < examples; i++) {
             offsets[i] = rand() % (BibleSize - 4000);
         }
-        for (epochs = 0; epochs < 8; epochs++) {
+        for (epochs = 0; epochs < 1; epochs++) {
             for (int i = 0; i < examples; i++) {
                 int j = i + (rand() % (examples - i));
                 int offset = offsets[i];
