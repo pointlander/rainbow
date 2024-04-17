@@ -684,10 +684,10 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
     const int spares = rows % numCPU;
     printf("%d %d %d\n", numCPU, batchSize, spares);
     for (int e = start; e < epochs; e++) {
-        struct Set d = NewSet(set.cols, set.rows);
         *cost = 0;
         int swap = 0;
         for (int i = 0; i < depth; i++) {
+            struct Set d = NewSet(set.cols, set.rows);
             printf("calculating self entropy %d\n", i);
             Within(data.images, (data.rows - 1)*data.width + data.width);
             Within(data.vectors, data.rows*d.rows);
@@ -730,7 +730,7 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
             printf("sorting\n");
             swap = SortData(&data);
             printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
-        }
+        
         double norm = 0;
         for (int s = 0; s < 4; s++) {
             Within(d.T[s], d.T[s].size);
@@ -764,6 +764,7 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
             }
         }
         FreeSet(d);
+        }
         printf("cost %.32f, %d\n", *cost, e);
         int result = fprintf(fp, "%d %.32f\n", e, *cost);
         if (result == EOF) {
@@ -994,7 +995,7 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < examples; i++) {
             offsets[i] = rand() % (BibleSize - 4000);
         }
-        for (epochs = 0; epochs < 8; epochs++) {
+        for (epochs = 0; epochs < 1; epochs++) {
             for (int i = 0; i < examples; i++) {
                 int j = i + (rand() % (examples - i));
                 int offset = offsets[i];
