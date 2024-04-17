@@ -682,14 +682,8 @@ void langInference(struct Set weights) {
             SortData(&data);
             printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
 
-            struct Slice vector = MakeSlice(256);
             for (int j = 0; j < data.vectors.rows; j++) {
-                struct Slice a = Slice(data.vectors, j*data.vectors.cols, (j + 1)*data.vectors.cols);
-                for (int k = 0; k < weights.T[3].rows; k++) {
-                    struct Slice b = Slice(weights.T[3], k*weights.T[3].cols, (k + 1)*weights.T[3].cols);
-                    vector.a[k] = dot(a, b);
-                }
-                softmax(vector);
+                struct Slice vector = Slice(data.vectors, j*data.vectors.cols, (j + 1)*data.vectors.cols);
                 double max = 0;
                 int index = 0;
                 for (int k = 0; k < vector.size; k++) {
@@ -705,7 +699,6 @@ void langInference(struct Set weights) {
 
                 votes[i][(uint8_t)index]++;
             }
-            FreeSlice(vector);
         }
         for (int i = 0; i < 3; i++) {
             int max = 0;
