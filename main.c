@@ -357,7 +357,6 @@ void SelfEntropy(struct Data *data, struct Set *set) {
 
         for (int j = 0; j < cols; j++) {
             entropies.a[j] = dotT(values, inputs[2].a, j, cols);
-            data->vectors.a[i*cols + j] = entropies.a[j];
         }
         softmax(entropies);
 
@@ -451,24 +450,6 @@ double rainbow_autodiff(struct Set *set, struct Set *d_set, struct Data *data, s
 }
 
 extern double __enzyme_autodiffLang(void*, struct Set*, struct Set*, struct Data*, struct Data*);
-void outputTransform(struct Set *set, struct Slice *in, struct Slice *out) {
-    for (int j = 0; j < set->T[3].rows; j++) {
-        struct Slice b = Slice(set->T[3], j*set->T[3].cols, (j + 1)*set->T[3].cols);
-        out->a[j] = dot(*in, b);
-    }
-    softmax(*out);
-}
-double crossEntropy(int symbol, struct Slice *in) {
-    double s = 0;
-    for (int j = 0; j < in->size; j++) {
-        if (j == symbol) {
-            s += log(in->a[j] + .001);
-        } else {
-            s += log(1 - in->a[j] + .001);
-        }
-    }
-    return -s;
-}
 double rainbowLang(struct Set *set, struct Data *data) {
     SelfEntropyLang(data, set);
     Within(data->vectors, 100 * 256);
