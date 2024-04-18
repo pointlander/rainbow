@@ -663,7 +663,7 @@ void langInference(struct Set weights) {
             SortData(&data);
             printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
 
-            for (int j = 0; j < data.vectors.rows; j++) {
+            for (int j = 0; j < 1; j++) {
                 struct Slice vector = Slice(data.vectors, j*data.vectors.cols, (j + 1)*data.vectors.cols);
                 double max = 0;
                 int index = 0;
