@@ -705,6 +705,77 @@ void langInference(struct Set weights) {
     }
 }
 
+void langGenerate(struct Set weights) {
+    Temperature = .5;
+    uint8_t generated[1024];
+    for (int i = 0; i < 1024; i++) {
+        generated[i] = 0;
+    }
+    for (int x = 0; x < 1023; x++) {
+        struct Data data = NewBibleData(x);
+        int index = (data.rows - x) * data.width;
+        uint8_t last = (uint8_t)Bible[data.rows - x - 1];
+        for (int i = 0; i < x; i++) {
+            const uint8_t current = generated[i];
+            for (int j = 0; j < data.width; j++) {
+                data.images.a[index] = Markov[last][current][j];
+                index++;
+            }
+            last = current;
+        }
+        const int rows = weights.rows;
+        struct Data cp = NewZeroData(data.width, 100);
+        Within(cp.images, 99*data.width + data.width);
+        Within(cp.entropy, 100);
+        for (int j = 0; j < data.rows; j += 100) {
+            for (int k = 0; k < 100; k++) {
+                for (int l = 0; l < data.width; l++) {
+                    cp.images.a[k*data.width + l] = data.images.a[(k+j)*data.width + l];
+                }
+                cp.labels[k] = data.labels[k + j];
+                for (int l = 0; l < cp.vectors.cols; l++) {
+                    cp.vectors.a[k*cp.vectors.cols + l] = data.vectors.a[(k+j)*data.vectors.cols + l];
+                }
+                cp.entropy.a[k] = data.entropy.a[k + j];
+            }
+            rainbowLang(&weights, &cp);
+            for (int k = 0; k < 100; k++) {
+                for (int l = 0; l < data.width; l++) {
+                    data.images.a[(k+j)*data.width + l] = cp.images.a[k*data.width + l];
+                }
+                data.labels[k + j] = cp.labels[k];
+                for (int l = 0; l < data.vectors.cols; l++) {
+                   data.vectors.a[(k+j)*data.vectors.cols + l] = cp.vectors.a[k*cp.vectors.cols + l];
+                }
+                data.entropy.a[k + j] = cp.entropy.a[k];
+            }
+        }
+        FreeData(cp);
+        if (IsSorted(data)) {
+            break;
+        }
+        SortData(&data);
+
+        for (int j = 0; j < 1; j++) {
+            struct Slice vector = Slice(data.vectors, j*data.vectors.cols, (j + 1)*data.vectors.cols);
+            double random = (double)rand() / (RAND_MAX);
+            double sum = 0.0;
+            for (int k = 0; k < vector.size; k++) {
+                sum += vector.a[k];
+                if (sum > random) {
+                    generated[x + 1] = (uint8_t)k;
+                    printf("%c", generated[x+1]);
+                    fflush(stdout);
+                    break;
+                }
+            }
+        }
+
+        FreeData(data);
+    }
+    printf("\n");
+}
+
 int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*), 
     struct Data data, struct Set set, int start, int epochs, int depth, double *cost) {
     const int numCPU = sysconf(_SC_NPROCESSORS_ONLN);
@@ -908,12 +979,16 @@ int main(int argc, char *argv[]) {
     load_Bible();
     uint8_t inference = 0;
     uint8_t langInferenceFlag = 0;
+    uint8_t generateFlag = 0;
     uint8_t lang = 0;
     if (argc > 1) {
         if (strcmp(argv[1], "-lang") == 0) {
             lang = 1;
         } else {
             if (argc > 2) {
+                if (strcmp(argv[2], "-gen") == 0) {
+                    generateFlag = 1;
+                }
                 langInferenceFlag = 1;
             }
             inference = 1;
@@ -971,7 +1046,9 @@ int main(int argc, char *argv[]) {
         }
         weights.cols = set->weights[0]->shape[0];
         weights.rows = set->weights[0]->shape[1];
-        if (langInferenceFlag == 1) {
+        if (generateFlag == 1) {
+            langGenerate(weights);
+        } else if (langInferenceFlag == 1) {
             langInference(weights);
         } else {
             mnistInference(weights);
