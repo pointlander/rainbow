@@ -7,6 +7,8 @@
 #include "mnist/mnist.h"
 #include "set.pb-c.h"
 
+#define SYMBOLS 256
+
 // S is the softmax factor
 const double S = (1.0 - 1e-300);
 // B1 exponential decay of the rate for the first moment estimates
@@ -17,12 +19,14 @@ const double B2 = 0.89;
 const double Eta = .001;
 // Size is the size of the network
 const int Size = 64;
+// Symbols is the number of symbols
+const int Symbols = SYMBOLS;
 // Temperature is the model temperature
 double Temperature = 1.0;
 
 char *Bible;
 long BibleSize;
-double Markov[256][256][256];
+double Markov[SYMBOLS][SYMBOLS][SYMBOLS];
 
 struct Slice {
     double* a;
@@ -97,9 +101,9 @@ struct Set NewSet(int cols, int rows) {
         set.M[i] = MakeMatrix(cols, rows);
         set.V[i] = MakeMatrix(cols, rows);
     }
-    set.T[3] = MakeMatrix(rows, 256);
-    set.M[3] = MakeMatrix(rows, 256);
-    set.V[3] = MakeMatrix(rows, 256);
+    set.T[3] = MakeMatrix(rows, Symbols);
+    set.M[3] = MakeMatrix(rows, Symbols);
+    set.V[3] = MakeMatrix(rows, Symbols);
     return set;
 }
 
@@ -125,7 +129,7 @@ struct Data NewData(int width) {
     const int rows = (NUM_TRAIN+NUM_TEST);
     struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)calloc(rows, sizeof(char));
-    struct Slice vectors = MakeMatrix(256, rows);
+    struct Slice vectors = MakeMatrix(Symbols, rows);
     struct Slice entropy = MakeSlice(rows);
     struct Data data = {
         .width = width,
@@ -166,11 +170,11 @@ struct Data NewData(int width) {
 }
 
 struct Data NewBibleData(int offset) {
-    const int width = 256;
+    const int width = Symbols;
     const int rows = 4000;
     struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)calloc(rows, sizeof(char));
-    struct Slice vectors = MakeMatrix(256, rows);
+    struct Slice vectors = MakeMatrix(Symbols, rows);
     struct Slice entropy = MakeSlice(rows);
     struct Data data = {
         .width = width,
@@ -200,7 +204,7 @@ struct Data NewBibleData(int offset) {
 struct Data NewZeroData(int width, int rows) {
     struct Slice images = MakeSlice(rows*width);
     char* labels = (char*)calloc(rows, sizeof(char));
-    struct Slice vectors = MakeMatrix(256, rows);
+    struct Slice vectors = MakeMatrix(Symbols, rows);
     struct Slice entropy = MakeSlice(rows);
     struct Data data = {
         .width = width,
@@ -398,8 +402,8 @@ void SelfEntropyLang(struct Data *data, struct Set *set) {
 
     const int cols = inputs[0].cols;
     const int rows = inputs[0].rows;
-    struct Slice entropies = MakeSlice(256);
-    struct Slice vectors = MakeSlice(256);
+    struct Slice entropies = MakeSlice(Symbols);
+    struct Slice vectors = MakeSlice(rows);
     struct Slice values = MakeSlice(rows);
     for (int i = 0; i < rows; i++) {
         struct Slice a = Slice(inputs[0], i*cols, (i+1)*cols);
@@ -454,7 +458,7 @@ double rainbow_autodiff(struct Set *set, struct Set *d_set, struct Data *data, s
 extern double __enzyme_autodiffLang(void*, struct Set*, struct Set*, struct Data*, struct Data*);
 double rainbowLang(struct Set *set, struct Data *data) {
     SelfEntropyLang(data, set);
-    Within(data->vectors, 100 * 256);
+    Within(data->vectors, 100 * Symbols);
     double sum = 0;
     for (int i = 0; i < data->vectors.rows; i++) {
         struct Slice vector = Slice(data->vectors, i*data->vectors.cols, (i + 1)*data->vectors.cols);
@@ -621,9 +625,9 @@ void langInference(struct Set weights) {
         struct Data data = NewBibleData(offset);
         uint8_t target = (uint8_t)(data.labels[0]);
         const int rows = weights.rows;
-        int votes[3][256];
+        int votes[3][SYMBOLS];
         for (int j = 0; j < 3; j++) {
-            for (int i = 0; i < 256; i++) {
+            for (int i = 0; i < Symbols; i++) {
                 votes[j][i] = 0;
             }
         }
@@ -686,7 +690,7 @@ void langInference(struct Set weights) {
         for (int i = 0; i < 3; i++) {
             int max = 0;
             int index = 0;
-            for (int y = 0; y < 256; y++) {
+            for (int y = 0; y < Symbols; y++) {
                 if (votes[i][y] > max) {
                     max = votes[i][y];
                     index = y;
@@ -917,16 +921,16 @@ void load_Bible() {
         exit(1);
     }
 
-    for (int i = 0; i < 256; i++) {
-        for (int j = 0; j < 256; j++) {
-            for (int k = 0; k < 256; k++) {
+    for (int i = 0; i < Symbols; i++) {
+        for (int j = 0; j < Symbols; j++) {
+            for (int k = 0; k < Symbols; k++) {
                 Markov[i][j][k] = 0;
             }
         }
     }
 
-    int counts[256];
-    for (int i = 0; i < 256; i++) {
+    int counts[SYMBOLS];
+    for (int i = 0; i < Symbols; i++) {
         counts[i] = 0;
     }
 
@@ -940,7 +944,7 @@ void load_Bible() {
     }
 
     double count = 0;
-    for (int i = 0; i < 256; i++) {
+    for (int i = 0; i < Symbols; i++) {
         if (counts[i] > 0) {
             count++;
         }
@@ -948,22 +952,22 @@ void load_Bible() {
     printf("symbols %f %f\n", count, 1/count);
 
     //struct Slice buffer = MakeSlice(256);
-    for (int i = 0; i < 256; i++) {
-        for (int j = 0; j < 256; j++) {
+    for (int i = 0; i < Symbols; i++) {
+        for (int j = 0; j < Symbols; j++) {
             double sum = 0;
-            for (int k = 0; k < 256; k++) {
+            for (int k = 0; k < Symbols; k++) {
                 double a = Markov[i][j][k];
                 //buffer.a[k] = a;
                 sum += a*a;
             }
             double length = sqrt(sum);
             if (length == 0) {
-                for (int k = 0; k < 256; k++) {
-                    Markov[i][j][k] = 1/sqrt(256);
+                for (int k = 0; k < Symbols; k++) {
+                    Markov[i][j][k] = 1/sqrt((double)Symbols);
                 }
             } else {
                 //softmax(buffer);
-                for (int k = 0; k < 256; k++) {
+                for (int k = 0; k < Symbols; k++) {
                     Markov[i][j][k] /= length;
                 }
             }
@@ -1087,7 +1091,7 @@ int main(int argc, char *argv[]) {
     double cost = 0;
     int epochs = 0;
     if (lang == 1) {
-        width = 256;
+        width = Symbols;
         set = NewSet(width, Size);
         for (int s = 0; s < 4; s++) {
             double factor = sqrt(2.0 / ((double)set.T[s].cols));
