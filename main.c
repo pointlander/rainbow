@@ -17,6 +17,8 @@ const double B2 = 0.89;
 const double Eta = .001;
 // Size is the size of the network
 const int Size = 64;
+// Temperature is the model temperature
+double Temperature = 1.0;
 
 char *Bible;
 long BibleSize;
@@ -412,7 +414,7 @@ void SelfEntropyLang(struct Data *data, struct Set *set) {
         }
         for (int j = 0; j < set->T[3].rows; j++) {
             struct Slice b = Slice(set->T[3], j*set->T[3].cols, (j + 1)*set->T[3].cols);
-            entropies.a[j] = dot(vectors, b);
+            entropies.a[j] = dot(vectors, b) / Temperature;
         }
         softmax(entropies);
         for (int j = 0; j < entropies.size; j++) {
