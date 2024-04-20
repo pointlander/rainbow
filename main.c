@@ -83,17 +83,21 @@ struct Slice Slice(struct Slice a, int begin, int end) {
     return x;
 }
 
+#define SET_SIZE 4
+
 struct Set {
+    int N;
     double loss;
     int cols;
     int rows;
-    struct Slice T[4];
-    struct Slice M[4];
-    struct Slice V[4];
+    struct Slice T[SET_SIZE];
+    struct Slice M[SET_SIZE];
+    struct Slice V[SET_SIZE];
 };
 
 struct Set NewSet(int cols, int rows) {
     struct Set set;
+    set.N = SET_SIZE;
     set.cols = cols;
     set.rows = rows;
     for (int i = 0; i < 3; i++) {
@@ -108,7 +112,7 @@ struct Set NewSet(int cols, int rows) {
 }
 
 void FreeSet(struct Set set) {
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < set.N; i++) {
         FreeSlice(set.T[i]);
         FreeSlice(set.M[i]);
         FreeSlice(set.V[i]);
@@ -819,7 +823,7 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
             }
             for (int j = 0; j < numCPU; j++) {
                 pthread_join(threads[j].thread, NULL);
-                for (int l = 0; l < 4; l++) {
+                for (int l = 0; l < d.N; l++) {
                     for (int k = 0; k < d.T[l].size; k++) {
                         d.T[l].a[k] += threads[j].d_set.T[l].a[k];
                     }
@@ -836,7 +840,7 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
             printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
         
         double norm = 0;
-        for (int s = 0; s < 4; s++) {
+        for (int s = 0; s < d.N; s++) {
             Within(d.T[s], d.T[s].size);
             for (int i = 0; i < d.T[s].size; i++) {
                 norm += d.T[s].a[i] * d.T[s].a[i];
@@ -849,7 +853,7 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
         }
         double b1 = Pow(B1, e);
         double b2 = Pow(B2, e);
-        for (int s = 0; s < 4; s++) {
+        for (int s = 0; s < d.N; s++) {
             Within(d.T[s], d.T[s].size);
             Within(set.M[s], d.T[s].size);
             Within(set.V[s], d.T[s].size);
@@ -1034,7 +1038,8 @@ int main(int argc, char *argv[]) {
         struct ProtoTf64__Set *set;
         set = proto_tf64__set__unpack(NULL, fsize, buf);
         struct Set weights;
-        for (int i = 0; i < 4; i++) {
+        weights.N = SET_SIZE;
+        for (int i = 0; i < weights.N; i++) {
             weights.T[i].size = set->weights[i]->n_values;
             weights.T[i].cols = set->weights[i]->shape[0];
             weights.T[i].rows = set->weights[i]->shape[1];
@@ -1093,7 +1098,7 @@ int main(int argc, char *argv[]) {
     if (lang == 1) {
         width = Symbols;
         set = NewSet(width, Size);
-        for (int s = 0; s < 4; s++) {
+        for (int s = 0; s < set.N; s++) {
             double factor = sqrt(2.0 / ((double)set.T[s].cols));
             for (int i = 0; i < set.T[s].size; i++) {
                 set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
@@ -1128,7 +1133,7 @@ int main(int argc, char *argv[]) {
         width = data.width;
         set = NewSet(data.width, Size);
         double factor = sqrt(2.0 / ((double)data.width));
-        for (int s = 0; s < 4; s++) {
+        for (int s = 0; s < set.N; s++) {
             for (int i = 0; i < set.T[s].size; i++) {
                 set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
             }
@@ -1143,8 +1148,8 @@ int main(int argc, char *argv[]) {
         FreeData(data);
     }
     struct ProtoTf64__Set protoSet = PROTO_TF64__SET__INIT;
-    struct ProtoTf64__Weights *weights[4];
-    for (int i = 0; i < 4; i++) {
+    struct ProtoTf64__Weights *weights[SET_SIZE];
+    for (int i = 0; i < set.N; i++) {
         struct ProtoTf64__Weights *weight = calloc(1, sizeof(struct ProtoTf64__Weights));
         *weight = (struct ProtoTf64__Weights)PROTO_TF64__WEIGHTS__INIT;
         weight->n_shape = 2;
@@ -1168,7 +1173,7 @@ int main(int argc, char *argv[]) {
     }
     protoSet.cost = cost;
     protoSet.epoch = epochs;
-    protoSet.n_weights = 4;
+    protoSet.n_weights = set.N;
     protoSet.weights = weights;
     unsigned len = proto_tf64__set__get_packed_size(&protoSet);
     void *buf = calloc(len, sizeof(uint8_t));
