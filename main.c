@@ -411,6 +411,9 @@ void SelfEntropyLang(struct Data *data, struct Set *set) {
         for (int y = 0; y < embedding.size; y++) {
             const int cols = set->T[4].cols;
             embedding.a[y] = dot(a, Slice(set->T[4], y*cols, (y+1)*cols));
+            if (embedding.a[y] < 0) {
+               embedding.a[y] = 0;
+            }
         }
         for (int x = 0; x < 3; x++) {
             const int rows = set->T[x].rows;
