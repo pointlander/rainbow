@@ -58,8 +58,9 @@ struct Slice MakeMatrix(int cols, int rows) {
     return x;
 }
 
-void FreeSlice(struct Slice x) {
-    free(x.a);
+void FreeSlice(struct Slice *x) {
+    free(x->a);
+    x->a = 0;
 }
 
 void Within(struct Slice a, int n) {
@@ -114,11 +115,11 @@ struct Set NewSet(int cols, int rows) {
     return set;
 }
 
-void FreeSet(struct Set set) {
-    for (int i = 0; i < set.N; i++) {
-        FreeSlice(set.T[i]);
-        FreeSlice(set.M[i]);
-        FreeSlice(set.V[i]);
+void FreeSet(struct Set *set) {
+    for (int i = 0; i < set->N; i++) {
+        FreeSlice(&(set->T[i]));
+        FreeSlice(&(set->M[i]));
+        FreeSlice(&(set->V[i]));
     }
 }
 
@@ -295,11 +296,12 @@ int IsSorted(struct Data data) {
     return 1;
 }
 
-void FreeData(struct Data data) {
-    FreeSlice(data.images);
-    free(data.labels);
-    FreeSlice(data.vectors);
-    FreeSlice(data.entropy);
+void FreeData(struct Data *data) {
+    FreeSlice(&(data->images));
+    free(data->labels);
+    data->labels = 0;
+    FreeSlice(&(data->vectors));
+    FreeSlice(&(data->entropy));
 }
 
 double dot(struct Slice x, struct Slice y) {
@@ -388,11 +390,11 @@ void SelfEntropy(struct Data *data, struct Set *set) {
         }
         data->entropy.a[i] = -entropy;
     }
-    FreeSlice(entropies);
-    FreeSlice(values);
-    FreeSlice(inputs[0]);
-    FreeSlice(inputs[1]);
-    FreeSlice(inputs[2]);
+    FreeSlice(&entropies);
+    FreeSlice(&values);
+    FreeSlice(&(inputs[0]));
+    FreeSlice(&(inputs[1]));
+    FreeSlice(&(inputs[2]));
 }
 
 void SelfEntropyLang(struct Data *data, struct Set *set) {
@@ -452,13 +454,13 @@ void SelfEntropyLang(struct Data *data, struct Set *set) {
         }
         data->entropy.a[i] = -entropy;
     }
-    FreeSlice(embedding);
-    FreeSlice(entropies);
-    FreeSlice(vectors);
-    FreeSlice(values);
-    FreeSlice(inputs[0]);
-    FreeSlice(inputs[1]);
-    FreeSlice(inputs[2]);
+    FreeSlice(&embedding);
+    FreeSlice(&entropies);
+    FreeSlice(&vectors);
+    FreeSlice(&values);
+    FreeSlice(&(inputs[0]));
+    FreeSlice(&(inputs[1]));
+    FreeSlice(&(inputs[2]));
 }
 
 extern double __enzyme_autodiff(void*, struct Set*, struct Set*, struct Data*, struct Data*);
@@ -541,7 +543,7 @@ void *Rainbow(void *ptr) {
         struct Data d_data = NewZeroData(width, 100);
         t->diff(&(t->set), &(t->d_set), &cp, &d_data);
         t->cost += t->set.loss;
-        FreeData(d_data);
+        FreeData(&d_data);
         for (int k = 0; k < 100; k++) {
             for (int l = 0; l < width; l++) {
                 t->data.images.a[(k+j*100)*width + l] = cp.images.a[k*width + l];
@@ -553,7 +555,7 @@ void *Rainbow(void *ptr) {
             t->data.entropy.a[k + j*100] = cp.entropy.a[k];
         }
     }
-    FreeData(cp);
+    FreeData(&cp);
     return 0;
 }
 
@@ -601,7 +603,7 @@ void mnistInference(struct Set weights) {
                 data.entropy.a[k + j] = cp.entropy.a[k];
             }
         }
-        FreeData(cp);
+        FreeData(&cp);
         if (IsSorted(data)) {
             printf("is sorted\n");
             printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
@@ -627,7 +629,7 @@ void mnistInference(struct Set weights) {
         }
     }
     printf("correct %d %f\n", correct, ((double)correct)/((double)10000));
-    FreeData(data);
+    FreeData(&data);
 }
 
 void langInference(struct Set weights) {
@@ -680,7 +682,7 @@ void langInference(struct Set weights) {
                     data.entropy.a[k + j] = cp.entropy.a[k];
                 }
             }
-            FreeData(cp);
+            FreeData(&cp);
             if (IsSorted(data)) {
                 printf("is sorted\n");
                 printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
@@ -722,7 +724,7 @@ void langInference(struct Set weights) {
             }
             totalVotes[i]++;
         }
-        FreeData(data);
+        FreeData(&data);
     }
     for (int i = 0; i < 3; i++) {
         printf("correct %d %f\n", i, correct[i]/total[i]);
@@ -775,7 +777,7 @@ void langGenerate(struct Set weights) {
                 data.entropy.a[k + j] = cp.entropy.a[k];
             }
         }
-        FreeData(cp);
+        FreeData(&cp);
         if (IsSorted(data)) {
             break;
         }
@@ -796,7 +798,7 @@ void langGenerate(struct Set weights) {
             }
         }
 
-        FreeData(data);
+        FreeData(&data);
     }
     printf("\n");
 }
@@ -845,7 +847,7 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
                         d.T[l].a[k] += threads[j].d_set.T[l].a[k];
                     }
                 }
-                FreeSet(threads[j].d_set);
+                FreeSet(&(threads[j].d_set));
                 *cost += threads[j].cost;
             }
             if (IsSorted(data)) {
@@ -888,7 +890,7 @@ int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*),
                     set.T[s].a[i] -= Eta * mhat / (sqrt(vhat) + 1e-8);
                 }
             }
-            FreeSet(d);
+            FreeSet(&d);
         }   
         printf("cost %.32f, %d\n", *cost, e);
         int result = fprintf(fp, "%d %.32f\n", e, *cost);
@@ -1141,7 +1143,7 @@ int main(int argc, char *argv[]) {
                 if (result > 0) {
                     return result;
                 }
-                FreeData(data);
+                FreeData(&data);
             }
         }
         free(offsets);
@@ -1162,7 +1164,7 @@ int main(int argc, char *argv[]) {
         if (result > 0) {
             return result;
         }
-        FreeData(data);
+        FreeData(&data);
     }
     struct ProtoTf64__Set protoSet = PROTO_TF64__SET__INIT;
     struct ProtoTf64__Weights *weights[SET_SIZE];
@@ -1209,5 +1211,5 @@ int main(int argc, char *argv[]) {
     fclose(output);
     fclose(fp);
     fclose(swaps);
-    FreeSet(set);
+    FreeSet(&set);
 }
