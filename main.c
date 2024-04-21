@@ -303,6 +303,10 @@ void FreeData(struct Data data) {
 }
 
 double dot(struct Slice x, struct Slice y) {
+    if (x.size != y.size) {
+        printf("%d != %d\n", x.size, y.size);
+        exit(1);
+    }
     double sum = 0;
     for (int i = 0; i < x.size; i++) {
         sum += x.a[i]*y.a[i];
@@ -310,10 +314,14 @@ double dot(struct Slice x, struct Slice y) {
     return sum;
 }
 
-double dotT(struct Slice x, double* y, int col, int width) {
+double dotT(struct Slice x, struct Slice y, int col, int width) {
+    if (x.size != y.rows) {
+        printf("%d != %d\n", x.size, y.rows);
+        exit(1);
+    }
     double sum = 0;
     for (int i = 0; i < x.size; i++) {
-        sum += x.a[i]*y[i*width+col];
+        sum += x.a[i]*y.a[i*width+col];
     }
     return sum;
 }
@@ -369,7 +377,7 @@ void SelfEntropy(struct Data *data, struct Set *set) {
         softmax(values);
 
         for (int j = 0; j < cols; j++) {
-            entropies.a[j] = dotT(values, inputs[2].a, j, cols);
+            entropies.a[j] = dotT(values, inputs[2], j, cols);
         }
         softmax(entropies);
 
@@ -388,7 +396,7 @@ void SelfEntropy(struct Data *data, struct Set *set) {
 }
 
 void SelfEntropyLang(struct Data *data, struct Set *set) {
-    struct Slice embedding = MakeSlice(set->cols);
+    struct Slice embedding = MakeSlice(set->T[4].rows);
     struct Slice inputs[3] = {
         MakeMatrix(set->T[0].rows, data->rows),
         MakeMatrix(set->T[1].rows, data->rows),
@@ -412,12 +420,11 @@ void SelfEntropyLang(struct Data *data, struct Set *set) {
             }
         }
     }
-    FreeSlice(embedding);
 
     const int cols = inputs[0].cols;
     const int rows = inputs[0].rows;
     struct Slice entropies = MakeSlice(Symbols);
-    struct Slice vectors = MakeSlice(rows);
+    struct Slice vectors = MakeSlice(cols);
     struct Slice values = MakeSlice(rows);
     for (int i = 0; i < rows; i++) {
         struct Slice a = Slice(inputs[0], i*cols, (i+1)*cols);
@@ -428,7 +435,7 @@ void SelfEntropyLang(struct Data *data, struct Set *set) {
         softmax(values);
 
         for (int j = 0; j < cols; j++) {
-            vectors.a[j] = dotT(values, inputs[2].a, j, cols);
+            vectors.a[j] = dotT(values, inputs[2], j, cols);
         }
         for (int j = 0; j < set->T[3].rows; j++) {
             struct Slice b = Slice(set->T[3], j*set->T[3].cols, (j + 1)*set->T[3].cols);
@@ -440,12 +447,12 @@ void SelfEntropyLang(struct Data *data, struct Set *set) {
         }
 
         double entropy = 0;
-        Within(entropies, entropies.size);
         for (int j = 0; j < entropies.size; j++) {
             entropy += entropies.a[j] * log(entropies.a[j]);
         }
         data->entropy.a[i] = -entropy;
     }
+    FreeSlice(embedding);
     FreeSlice(entropies);
     FreeSlice(vectors);
     FreeSlice(values);
