@@ -84,7 +84,8 @@ struct Slice Slice(struct Slice a, int begin, int end) {
     return x;
 }
 
-#define SET_SIZE 5
+#define WEIGHTS 5
+#define SET_SIZE 7
 
 struct Set {
     int N;
@@ -112,6 +113,12 @@ struct Set NewSet(int cols, int rows) {
     set.T[4] = MakeMatrix(Symbols, cols);
     set.M[4] = MakeMatrix(Symbols, cols);
     set.V[4] = MakeMatrix(Symbols, cols);
+    set.T[5] = MakeMatrix(Symbols, 1);
+    set.M[5] = MakeMatrix(Symbols, 1);
+    set.V[5] = MakeMatrix(Symbols, 1);
+    set.T[6] = MakeMatrix(cols, 1);
+    set.M[6] = MakeMatrix(cols, 1);
+    set.V[6] = MakeMatrix(cols, 1);
     return set;
 }
 
@@ -410,7 +417,7 @@ void SelfEntropyLang(struct Data *data, struct Set *set) {
         struct Slice a = Slice(data->images, z*width, (z+1)*width);
         for (int y = 0; y < embedding.size; y++) {
             const int cols = set->T[4].cols;
-            embedding.a[y] = dot(a, Slice(set->T[4], y*cols, (y+1)*cols));
+            embedding.a[y] = dot(a, Slice(set->T[4], y*cols, (y+1)*cols)) + set->T[6].a[y];
             if (embedding.a[y] < 0) {
                embedding.a[y] = 0;
             }
@@ -444,7 +451,7 @@ void SelfEntropyLang(struct Data *data, struct Set *set) {
         }
         for (int j = 0; j < set->T[3].rows; j++) {
             struct Slice b = Slice(set->T[3], j*set->T[3].cols, (j + 1)*set->T[3].cols);
-            entropies.a[j] = dot(vectors, b) / Temperature;
+            entropies.a[j] = (dot(vectors, b) + set->T[5].a[j]) / Temperature;
         }
         softmax(entropies);
         for (int j = 0; j < entropies.size; j++) {
@@ -1120,7 +1127,7 @@ int main(int argc, char *argv[]) {
     if (lang == 1) {
         width = Symbols;
         set = NewSet(Size, Size);
-        for (int s = 0; s < set.N; s++) {
+        for (int s = 0; s < WEIGHTS; s++) {
             double factor = sqrt(2.0 / ((double)set.T[s].cols));
             for (int i = 0; i < set.T[s].size; i++) {
                 set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
