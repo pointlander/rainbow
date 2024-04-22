@@ -110,15 +110,15 @@ struct Set NewSet(int cols, int rows) {
     set.T[3] = MakeMatrix(rows, Symbols);
     set.M[3] = MakeMatrix(rows, Symbols);
     set.V[3] = MakeMatrix(rows, Symbols);
-    set.T[4] = MakeMatrix(Symbols, cols);
-    set.M[4] = MakeMatrix(Symbols, cols);
-    set.V[4] = MakeMatrix(Symbols, cols);
+    set.T[4] = MakeMatrix(Symbols, rows);
+    set.M[4] = MakeMatrix(Symbols, rows);
+    set.V[4] = MakeMatrix(Symbols, rows);
     set.T[5] = MakeMatrix(Symbols, 1);
     set.M[5] = MakeMatrix(Symbols, 1);
     set.V[5] = MakeMatrix(Symbols, 1);
-    set.T[6] = MakeMatrix(cols, 1);
-    set.M[6] = MakeMatrix(cols, 1);
-    set.V[6] = MakeMatrix(cols, 1);
+    set.T[6] = MakeMatrix(rows, 1);
+    set.M[6] = MakeMatrix(rows, 1);
+    set.V[6] = MakeMatrix(rows, 1);
     return set;
 }
 
@@ -405,7 +405,7 @@ void SelfEntropy(struct Data *data, struct Set *set) {
 }
 
 void SelfEntropyLang(struct Data *data, struct Set *set) {
-    struct Slice embedding = MakeSlice(set->T[4].rows);
+    struct Slice embedding = MakeSlice(2*set->T[4].rows);
     struct Slice inputs[3] = {
         MakeMatrix(set->T[0].rows, data->rows),
         MakeMatrix(set->T[1].rows, data->rows),
@@ -415,12 +415,18 @@ void SelfEntropyLang(struct Data *data, struct Set *set) {
     int index[3] = {0, 0, 0};
     for (int z = 0; z < data->rows; z++) {
         struct Slice a = Slice(data->images, z*width, (z+1)*width);
-        for (int y = 0; y < embedding.size; y++) {
+        int zz = 0;
+        for (int y = 0; y < embedding.size; y += 2) {
             const int cols = set->T[4].cols;
-            embedding.a[y] = dot(a, Slice(set->T[4], y*cols, (y+1)*cols)) + set->T[6].a[y];
+            embedding.a[y] = dot(a, Slice(set->T[4], zz*cols, (zz+1)*cols)) + set->T[6].a[zz];
+            embedding.a[y + 1] = embedding.a[y];
             if (embedding.a[y] < 0) {
                embedding.a[y] = 0;
             }
+            if (embedding.a[y + 1] > 0) {
+               embedding.a[y + 1] = 0;
+            }
+            zz++;
         }
         for (int x = 0; x < 3; x++) {
             const int rows = set->T[x].rows;
@@ -432,7 +438,6 @@ void SelfEntropyLang(struct Data *data, struct Set *set) {
             }
         }
     }
-
     const int cols = inputs[0].cols;
     const int rows = inputs[0].rows;
     struct Slice entropies = MakeSlice(Symbols);
@@ -1124,7 +1129,7 @@ int main(int argc, char *argv[]) {
     int epochs = 0;
     if (lang == 1) {
         width = Symbols;
-        set = NewSet(Size, Size);
+        set = NewSet(2*Size, Size);
         for (int s = 0; s < WEIGHTS; s++) {
             double factor = sqrt(2.0 / ((double)set.T[s].cols));
             for (int i = 0; i < set.T[s].size; i++) {
