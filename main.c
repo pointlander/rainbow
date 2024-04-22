@@ -814,107 +814,105 @@ void langGenerate(struct Set weights) {
 }
 
 int learn(double (*diff)(struct Set*, struct Set*, struct Data*, struct Data*), 
-    struct Data data, struct Set set, int start, int epochs, int depth, double *cost) {
+    struct Data data, struct Set set, int iteration, int epoch, int depth, double *cost) {
     const int numCPU = sysconf(_SC_NPROCESSORS_ONLN);
     const int rows = data.rows / 100;
     const int batchSize = rows / numCPU;
     const int spares = rows % numCPU;
     printf("%d %d %d\n", numCPU, batchSize, spares);
-    for (int e = start; e < epochs; e++) {
-        *cost = 0;
-        int swap = 0;
-        for (int i = 0; i < depth; i++) {
-            struct Set d = NewSet(set.cols, set.rows);
-            printf("calculating self entropy %d\n", i);
-            Within(data.images, (data.rows - 1)*data.width + data.width);
-            Within(data.vectors, data.rows*d.rows);
-            Within(data.entropy, data.rows);
-            struct Thread threads[numCPU];
-            int j = 0;
-            int cpu = 0;
-            int s = 0;
-            while (j < rows) {
-                threads[cpu].diff = diff;
-                threads[cpu].offset = j;
-                threads[cpu].batchSize = batchSize;
-                if (s < spares) {
-                    threads[cpu].batchSize++;
-                    s++;
+    *cost = 0;
+    int swap = 0;
+    for (int i = 0; i < depth; i++) {
+        struct Set d = NewSet(set.cols, set.rows);
+        printf("calculating self entropy %d\n", i);
+        Within(data.images, (data.rows - 1)*data.width + data.width);
+        Within(data.vectors, data.rows*d.rows);
+        Within(data.entropy, data.rows);
+        struct Thread threads[numCPU];
+        int j = 0;
+        int cpu = 0;
+        int s = 0;
+        while (j < rows) {
+            threads[cpu].diff = diff;
+            threads[cpu].offset = j;
+            threads[cpu].batchSize = batchSize;
+            if (s < spares) {
+                threads[cpu].batchSize++;
+                s++;
+            }
+            //printf("batchSize %d\n", batchSize);
+            threads[cpu].data = data;
+            threads[cpu].set = set;
+            threads[cpu].d_set = NewSet(set.cols, set.rows);
+            threads[cpu].cost = 0;
+            pthread_create(&threads[cpu].thread, 0, Rainbow, (void*)&threads[cpu]);
+            j += threads[cpu].batchSize;
+            cpu++;
+        }
+        for (int j = 0; j < numCPU; j++) {
+            pthread_join(threads[j].thread, NULL);
+            for (int l = 0; l < d.N; l++) {
+                for (int k = 0; k < d.T[l].size; k++) {
+                    d.T[l].a[k] += threads[j].d_set.T[l].a[k];
                 }
-                //printf("batchSize %d\n", batchSize);
-                threads[cpu].data = data;
-                threads[cpu].set = set;
-                threads[cpu].d_set = NewSet(set.cols, set.rows);
-                threads[cpu].cost = 0;
-                pthread_create(&threads[cpu].thread, 0, Rainbow, (void*)&threads[cpu]);
-                j += threads[cpu].batchSize;
-                cpu++;
             }
-            for (int j = 0; j < numCPU; j++) {
-                pthread_join(threads[j].thread, NULL);
-                for (int l = 0; l < d.N; l++) {
-                    for (int k = 0; k < d.T[l].size; k++) {
-                        d.T[l].a[k] += threads[j].d_set.T[l].a[k];
-                    }
-                }
-                FreeSet(&(threads[j].d_set));
-                *cost += threads[j].cost;
-            }
-            if (IsSorted(data)) {
-                printf("is sorted\n");
-                break;
-            }
-            printf("sorting\n");
-            swap = SortData(&data);
-            printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
+            FreeSet(&(threads[j].d_set));
+            *cost += threads[j].cost;
+        }
+        if (IsSorted(data)) {
+            printf("is sorted\n");
+            break;
+        }
+        printf("sorting\n");
+        swap = SortData(&data);
+        printf("%.17f %.17f\n", data.entropy.a[0], data.entropy.a[data.rows-1]);
         
-            double norm = 0;
-            for (int s = 0; s < d.N; s++) {
-                Within(d.T[s], d.T[s].size);
-                for (int i = 0; i < d.T[s].size; i++) {
-                    norm += d.T[s].a[i] * d.T[s].a[i];
-                }
+        double norm = 0;
+        for (int s = 0; s < d.N; s++) {
+            Within(d.T[s], d.T[s].size);
+            for (int i = 0; i < d.T[s].size; i++) {
+                norm += d.T[s].a[i] * d.T[s].a[i];
             }
-            norm = sqrt(norm);
-            double scaling = 1;
-            if (norm > 1) {
-                scaling /= norm;
-            }
-            double b1 = Pow(B1, e);
-            double b2 = Pow(B2, e);
-            for (int s = 0; s < d.N; s++) {
-                Within(d.T[s], d.T[s].size);
-                Within(set.M[s], d.T[s].size);
-                Within(set.V[s], d.T[s].size);
-                for (int i = 0; i < d.T[s].size; i++) {
-                    double g = d.T[s].a[i] * scaling;
-                    double mm = B1*set.M[s].a[i] + (1-B1)*g;
-                    double vv = B2*set.V[s].a[i] + (1-B2)*g*g;
-                    set.M[s].a[i] = mm;
-                    set.V[s].a[i] = vv;
-                    double mhat = mm / (1 - b1);
-                    double vhat = vv / (1 - b2);
-                    if (vhat < 0) {
-                        vhat = 0;
-                    }
-                    set.T[s].a[i] -= Eta * mhat / (sqrt(vhat) + 1e-8);
-                }
-            }
-            FreeSet(&d);
-        }   
-        printf("cost %.32f, %d\n", *cost, e);
-        int result = fprintf(fp, "%d %.32f\n", e, *cost);
-        if (result == EOF) {
-            printf("Error writing to file!\n");
-            fclose(fp);
-            return 1;
         }
-        result = fprintf(swaps, "%d %d\n", e, swap);
-        if (result == EOF) {
-            printf("Error writing to swaps file!\n");
-            fclose(swaps);
-            return 1;
+        norm = sqrt(norm);
+        double scaling = 1;
+        if (norm > 1) {
+            scaling /= norm;
         }
+        double b1 = Pow(B1, epoch);
+        double b2 = Pow(B2, epoch);
+        for (int s = 0; s < d.N; s++) {
+            Within(d.T[s], d.T[s].size);
+            Within(set.M[s], d.T[s].size);
+            Within(set.V[s], d.T[s].size);
+            for (int i = 0; i < d.T[s].size; i++) {
+                double g = d.T[s].a[i] * scaling;
+                double mm = B1*set.M[s].a[i] + (1-B1)*g;
+                double vv = B2*set.V[s].a[i] + (1-B2)*g*g;
+                set.M[s].a[i] = mm;
+                set.V[s].a[i] = vv;
+                double mhat = mm / (1 - b1);
+                double vhat = vv / (1 - b2);
+                if (vhat < 0) {
+                    vhat = 0;
+                }
+                set.T[s].a[i] -= Eta * mhat / (sqrt(vhat) + 1e-8);
+            }
+        }
+        FreeSet(&d);
+    }   
+    printf("cost %.32f, %d\n", *cost, iteration);
+    int result = fprintf(fp, "%d %.32f\n", iteration, *cost);
+    if (result == EOF) {
+        printf("Error writing to file!\n");
+        fclose(fp);
+        return 1;
+    }
+    result = fprintf(swaps, "%d %d\n", iteration, swap);
+    if (result == EOF) {
+        printf("Error writing to swaps file!\n");
+        fclose(swaps);
+        return 1;
     }
     printf("\n");
     return 0;
@@ -1139,7 +1137,8 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < examples; i++) {
             offsets[i] = rand() % (BibleSize - 4000);
         }
-        for (epochs = 0; epochs < 1; epochs++) {
+        int iteration = 0;
+        for (int epoch = 0; epoch < 1; epoch++) {
             for (int i = 0; i < examples; i++) {
                 int j = i + (rand() % (examples - i));
                 int offset = offsets[i];
@@ -1149,12 +1148,14 @@ int main(int argc, char *argv[]) {
             for (int i = 0; i < examples; i++) {
                 int offset = offsets[i];
                 struct Data data = NewBibleData(offset);
-                result = learn(rainbow_autodiffLang, data, set, epochs, epochs+1, depth, &cost);
+                result = learn(rainbow_autodiffLang, data, set, iteration, epoch, depth, &cost);
                 if (result > 0) {
                     return result;
                 }
+                iteration++;
                 FreeData(&data);
             }
+            epochs++;
         }
         free(offsets);
     } else {
@@ -1167,12 +1168,16 @@ int main(int argc, char *argv[]) {
                 set.T[s].a[i] = factor*(((double)rand() / (RAND_MAX)) * 2 - 1);
             }
         }
-        epochs = 256;
         const int depth = 3;
-        double cost = 0;
-        result = learn(rainbow_autodiff, data, set, 0, epochs, depth, &cost);
-        if (result > 0) {
-            return result;
+        int iteration = 0;
+        for (int epoch = 0; epoch < 256; epoch++) {
+            double cost = 0;
+            result = learn(rainbow_autodiff, data, set, iteration, epoch, depth, &cost);
+            if (result > 0) {
+                return result;
+            }
+            iteration++;
+            epochs++;
         }
         FreeData(&data);
     }
