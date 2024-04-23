@@ -16,7 +16,7 @@ const double B1 = 0.8;
 // B2 exponential decay rate for the second-moment estimates
 const double B2 = 0.89;
 // Eta is the learning rate
-const double Eta = .001;
+const double Eta = .0001;
 // Size is the size of the network
 const int Size = 64;
 // Symbols is the number of symbols
