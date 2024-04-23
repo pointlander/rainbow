@@ -405,7 +405,7 @@ void SelfEntropy(struct Data *data, struct Set *set) {
 }
 
 void SelfEntropyLang(struct Data *data, struct Set *set) {
-    struct Slice embedding = MakeSlice(2*set->T[4].rows);
+    struct Slice embedding = MakeMatrix(2*set->T[4].rows, data->rows);
     struct Slice inputs[3] = {
         MakeMatrix(set->T[0].rows, data->rows),
         MakeMatrix(set->T[1].rows, data->rows),
@@ -414,17 +414,18 @@ void SelfEntropyLang(struct Data *data, struct Set *set) {
     const int width = data->width;
     int index[3] = {0, 0, 0};
     for (int z = 0; z < data->rows; z++) {
+        const int offset = embedding.cols * z;
         struct Slice a = Slice(data->images, z*width, (z+1)*width);
         int zz = 0;
-        for (int y = 0; y < embedding.size; y += 2) {
+        for (int y = 0; y < embedding.cols; y += 2) {
             const int cols = set->T[4].cols;
-            embedding.a[y] = dot(a, Slice(set->T[4], zz*cols, (zz+1)*cols)) + set->T[6].a[zz];
-            embedding.a[y + 1] = embedding.a[y];
-            if (embedding.a[y] < 0) {
-               embedding.a[y] = 0;
+            embedding.a[offset + y] = dot(a, Slice(set->T[4], zz*cols, (zz+1)*cols)) + set->T[6].a[zz];
+            embedding.a[offset + y + 1] = embedding.a[offset + y];
+            if (embedding.a[offset + y] < 0) {
+               embedding.a[offset + y] = 0;
             }
-            if (embedding.a[y + 1] > 0) {
-               embedding.a[y + 1] = 0;
+            if (embedding.a[offset + y + 1] > 0) {
+               embedding.a[offset + y + 1] = 0;
             }
             zz++;
         }
@@ -433,7 +434,7 @@ void SelfEntropyLang(struct Data *data, struct Set *set) {
             for (int j = 0; j < rows; j++) {
                 const int cols = set->T[x].cols;
                 struct Slice b = Slice(set->T[x], j*cols, (j+1)*cols);
-                inputs[x].a[index[x]] = dot(b, embedding);
+                inputs[x].a[index[x]] = dot(b, Slice(embedding, offset, offset+embedding.cols));
                 index[x]++;
             }
         }
@@ -452,7 +453,7 @@ void SelfEntropyLang(struct Data *data, struct Set *set) {
         softmax(values);
 
         for (int j = 0; j < cols; j++) {
-            vectors.a[j] = dotT(values, inputs[2], j, cols);
+            vectors.a[j] = dotT(values, inputs[2], j, cols) + embedding.a[embedding.cols*i + j];
         }
         for (int j = 0; j < set->T[3].rows; j++) {
             struct Slice b = Slice(set->T[3], j*set->T[3].cols, (j + 1)*set->T[3].cols);
